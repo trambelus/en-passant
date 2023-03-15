@@ -283,10 +283,10 @@ def levenshtein(s1: str, s2: str) -> int:
     return previous_row[-1]
 
 def correct_bad_move(move: str, board: chess.Board) -> List[str]:
-    '''Returns a list of all legal moves within a levenshtein distance of 1 from the given move, in SAN format.'''
+    '''Returns a list of all legal moves within a levenshtein distance of 2 from the given move, in SAN format.'''
     matches = []
     for legal_move in board.legal_moves:
-        if levenshtein(move, board.san(legal_move)) <= 1:
+        if levenshtein(move, board.san(legal_move)) <= 2:
             matches.append(board.san(legal_move))
     return sorted(matches)
 

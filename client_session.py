@@ -268,19 +268,25 @@ class ClientGameSession(GameSession):
         Get the response to the last move on the board stack.
         This includes the move itself (if one was made), the board, and (maybe) a warning about check.
         '''
+
         last_move_str = self.last_move if self.client_options.notation == "san" else self.board.move_stack[-1].uci() if len(self.board.move_stack) > 0 else None
+
         ret_str = ''
+
         # Note the move if one was made and the author's name is known
         if last_move_str and author_nick:
             ret_str += f'{author_nick} plays **{last_move_str}**.\n'
+
         # Convert the board to emoji, sending the list of SAN-formatted moves if the notation is SAN
         if self.client_options.notation == 'san':
             ret_str += board_to_emoji(self.board, self.moves)
         elif self.client_options.notation == 'uci':
             ret_str += board_to_emoji(self.board)
-        # Add a warning about check if necessary
+
+        # Add any game state info from the last move
         if check_warning_result:
             ret_str += f'\n**{check_warning_result}**'
+
         if self.is_game_over:
             if self.is_checkmate:
                 winner = self.client_options.white_nick if self.turn == BLACK else self.client_options.black_nick
