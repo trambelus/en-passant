@@ -7,6 +7,7 @@ import uuid
 from typing import Dict, List
 
 import chess
+import chess.variant
 
 from config import DEFAULT_GAME_OPTIONS
 
@@ -24,10 +25,8 @@ class GameSession:
     Game options are not specific to the client or engine, and may (TODO: eventually?) include:
     - variant: the variant to play, e.g. 'atomic', 'crazyhouse', 'horde', 'kingofthehill', 'racingkings', 'threecheck'
     - chess960_pos: the starting position for chess960, or -1 for standard chess
-    - time_control: the time control to use, e.g. 'bullet', 'blitz', 'rapid', 'classical'
-    - time_limit: the time limit for the game, in seconds
+    - time_limit: the time limit for each player, in seconds
     - increment: the increment for the game, in seconds
-    - rated: whether the game is rated
     '''
     def __init__(self, fen: str = None, moves: List[str] = [], game_options: Dict[str, str] = DEFAULT_GAME_OPTIONS, session_id: str = None):
         '''Set board, fen, game options, variant, chess960 position, and moves. Generate a session ID if one is not provided.'''
@@ -50,26 +49,27 @@ class GameSession:
                         # since the board does store them in UCI format via board.move_stack.
         self.reset_board()
         for move_str in moves:
-            move = self.parse_move(move_str)
-            if not self.board.push(move):
+            try:
+                move = self.parse_move(move_str)
+                self.moves.append(self.board.san(move))
+                self.board.push(move)
+            except (chess.InvalidMoveError, chess.AmbiguousMoveError, chess.IllegalMoveError):
                 logger.warn(f'Could not parse move \'{move_str}\' in moves list; defaulting to starting position')
                 self.reset_board()
                 self.moves = []
                 self.fen = fen
                 break
-            else:
-                self.moves.append(self.board.parse_san(move))
     
     def reset_board(self):
         if self.chess960_pos >= 0:
             self.board = chess.Board.from_chess960_pos(self.chess960_pos)
-        elif self.variant is not None:
+        elif self.variant is not None and self.variant != 'standard':
             try:
                 self.board = chess.variant.find_variant(self.variant)()
                 # Set variant name to the actual name of the variant, in case it matched a variant alias
                 self.variant = self.board.uci_variant
             except ValueError:
-                logger.warn(f'Invalid variant \'{self.variant}\'; defaulting to standard chess')
+                logger.warn(f'Unknown variant \'{self.variant}\'; defaulting to standard chess')
                 self.board = chess.Board()
                 self.variant = None
         else:

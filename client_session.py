@@ -214,19 +214,24 @@ class ClientGameSession(GameSession):
         Verify the author of the move, send the move to the engine, display the move on the board, ping the opponent, and update the clock.
         It's the caller's responsibility to verify that this GameSession corresponds to the channel in which the move was made.
         '''
+
         # TODO: replace all these with flavor text in flavor_strings.py
         if move_author is None:
             return 'Something went wrong on the backend. I don\'t even know who you are.'
+        
         if move_author.user.id != self.client_options.black_id and move_author.user.id != self.client_options.white_id:
             return f'You are not a player in this game, {move_author.nick}.'
+        
         elif move_author.user.id != self.client_options.white_id and self.turn == WHITE:
             return f'It is not your turn, {move_author.nick}!'
+        
         elif move_author.user.id != self.client_options.black_id and self.turn == BLACK:
             return f'It is not your turn, {move_author.nick}!'
         
         # Check the move for validity
         try:
             move = self.parse_move(move_str)
+
         except (InvalidMoveError, IllegalMoveError):
             suggestions = correct_bad_move(move_str, self.board)
             if suggestions and len(suggestions) > 1:
@@ -235,6 +240,7 @@ class ClientGameSession(GameSession):
                 return f'Invalid move \'**{move_str}**\'! Did you mean **{suggestions[0]}**?'
             else:
                 return f'Invalid move \'**{move_str}**\'! Did you mean to type `/resign`?'
+            
         except AmbiguousMoveError:
             suggestions = disambiguate_move(move_str, self.board)
             if suggestions and len(suggestions) > 2:
@@ -295,12 +301,14 @@ class ClientGameSession(GameSession):
             elif self.is_stalemate:
                 ret_str += f'\n{next(stalemate_2p if self.client_options.players == 2 else stalemate_1p)}'
             # No need to do anything else; caller will check if the game is over as well
+
         else: # No need to ping if the game is over
             # TODO: add flavor text here too
             if self.client_options.ping_white and self.turn == WHITE:
                 ret_str += f'\n <@{self.client_options.white_id}>, it\'s your turn!'
             elif self.client_options.ping_black and self.turn == BLACK:
                 ret_str += f'\n <@{self.client_options.black_id}>, it\'s your turn!'
+
         return ret_str
 
     def send_move(self, move_str: str) -> None:
