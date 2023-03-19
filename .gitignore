@@ -2,6 +2,11 @@
 
 # Project-specific
 resources/compiled/
+*.log
+*.log.[0-9]
+*.log.[0-9][0-9]
+*.log.[0-9][0-9][0-9]
+*.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

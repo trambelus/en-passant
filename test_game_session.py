@@ -53,7 +53,7 @@ def test_serialize_game_session():
                                fen='r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4',
                                game_options={ 'variant': 'standard', 'chess960_pos': -1, 'time_limit': -1, 'time_increment': 0 },
                                session_id='test_session_id')
-    game_session_loaded = GameSession.from_json(game_session.to_json())
+    game_session_loaded = GameSession.from_json(game_session.to_dict())
     assert_list_equal(game_session_loaded.moves, game_session.moves)
     assert game_session_loaded.fen == game_session.fen
     assert_dict_equal(game_session_loaded.game_options, game_session.game_options)

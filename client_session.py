@@ -1,16 +1,16 @@
 import asyncio
 import json
 import logging
-from typing import List, Dict
+from typing import List, Dict, Any
 
 from chess import Board, Piece, Move, InvalidMoveError, IllegalMoveError, AmbiguousMoveError, WHITE, BLACK
 import websockets
 import interactions
+from interactions import Snowflake
 
-from config import ENGINE_HOST, ENGINE_PORT, ENGINE_PW, ENGINE_USER, DEFAULT_GAME_OPTIONS, DEFAULT_CLIENT_OPTIONS
+from config import ENGINE_HOST, ENGINE_PORT, ENGINE_PW, ENGINE_USER, DEFAULT_GAME_OPTIONS
 from game_session import GameSession, correct_bad_move, disambiguate_move
 from client_options import ClientOptions
-import flavor_strings
 from flavor_strings import checkmate_1p, stalemate_1p, draw_1p, checkmate_2p, checkmate_2p_upset, draw_2p, \
     stalemate_2p, resign_2p, interloper
     # checkmate_string, stalemate_string, draw_string, resign_string, interloper_string, \
@@ -58,7 +58,7 @@ def fen_to_emoji(fen: str) -> str:
     board = Board(fen)
     return board_to_emoji(board)
 
-def board_to_emoji(board: Board, moves_list: List[str]=None) -> str:
+def board_to_emoji(board: Board, moves_list: List[str] = None) -> str:
     '''Given a board from chess.py, return a string that can be used in a Discord message,
     e.g. given a board with the starting position, return:
     [list of moves, blank in this case]
@@ -74,17 +74,20 @@ def board_to_emoji(board: Board, moves_list: List[str]=None) -> str:
     Not quite like that, each emoji will be a fully-qualified reference, e.g. <:pwl:1084899251366133802>,
     but that would be too long for this comment.
     '''
+    # If emoji_map is empty, error out
+    if len(emoji_map) == 0:
+        raise ValueError('emoji_map is empty, please call populate_emoji_map(new_map) first')
     # If moves_list is None, try to get the moves from the board
     if moves_list is None:
-        moves_list = board.move_stack
+        moves_list = [move.uci() for move in board.move_stack]
     # Get the last move, if any
-    last_move = moves_list[-1] if len(moves_list) > 0 else None
+    last_move = board.peek() if len(board.move_stack) > 0 else None
     # Get a string representation of the moves list
     if len(moves_list) == 0:
         moves_str = ''
     else:
         # Add move numbers every other move, and with the last move wrapped with '**'
-        moves_str = ''.join([(f'  {i // 2 + 1}. ' if i % 2 == 0 else ' ') + f'{"**" if i == len(moves_list) - 1 else ""}{move.uci()}' for i, move in enumerate(moves_list)]) + '**'
+        moves_str = ''.join([(f'  {i // 2 + 1}. ' if i % 2 == 0 else ' ') + f'{"**" if i == len(moves_list) - 1 else ""}{move}' for i, move in enumerate(moves_list)]) + '**'
     # Get a representation of the board as a 2D array
     board_str = str(board)
     board_arr = [rank.split(' ') for rank in board_str.split('\n')]
@@ -110,8 +113,8 @@ def emoji_to_fen(emoji: str) -> str:
 
 def emoji_to_board(message_str: str) -> Board:
     '''Given a string that can be used in a Discord message, return a chess.Board'''
-    # Create a new board
-    board = Board()
+    # Create a new empty board
+    board = Board(fen=None)
     # Discard the first line (the move list) if it exists (starts with '1. ')
     if message_str.split('\n')[0].startswith('1. '):
         message_str = '\n'.join(message_str.split('\n')[1:])
@@ -147,7 +150,6 @@ def moves_to_board(moves: str) -> Board:
     game_session = GameSession()
     for move in moves.split(' '):
         if not game_session.push_move_str(move):
-            print(f'Invalid move: {move}')
             raise ValueError('Invalid move')
     return game_session.board
 
@@ -166,9 +168,20 @@ class ClientGameSession(GameSession):
     game_options includes the options that are relevant to both the client and the engine; see the GameSession class for details.
     client_options includes only the options that are relevant to the client; see the ClientOptions class for details.
     '''
-    def __init__(self, client_options: ClientOptions, fen: str=None, moves: list=[], game_options: dict=DEFAULT_GAME_OPTIONS):
-        super().__init__(fen, moves, game_options)
-        self.client_options = client_options
+    def __init__(self, client_options: ClientOptions, fen: str = None, moves: list[str] = [], game_options: dict[str, Any] = DEFAULT_GAME_OPTIONS, session_id: Snowflake = None):
+        '''
+        Create a new ClientGameSession.
+        :param ClientOptions client_options: The options that are relevant to the client.
+        :param str fen: The FEN string to start the game from.
+        :param List[str] moves: The moves to make in the game. Overrides the FEN string if both are present.
+        :param Dict[str, Any] game_options: The options that are relevant to both the client and the engine.
+        :param Snowflake session_id: The session ID to use for the game. Should match the thread ID.
+        '''
+        # session_id is converted to string because Snowflake is not JSON serializable.
+        # Also GameSession really shouldn't have to deal with Snowflake objects; those are Discord-specific.
+        # TODO: figure out what happens if the session ID is not provided.
+        super().__init__(fen=fen, moves=moves, game_options=game_options, session_id=str(session_id))
+        self.client_options: ClientOptions = client_options
         self.flavor_state = {
             # Various state information for providing more fun flavor text
             'spectators': [], # Discord IDs of spectators
@@ -188,14 +201,16 @@ class ClientGameSession(GameSession):
     def __str__(self):
         '''Return a string representation of the game.'''
         # Get the author's id
-        author_name = self.client_options.author_id
+        author_name = self.client_options.author_nick
         # Get the opponent's id
-        opponent_name = self.client_options.opponent_id
+        opponent_name = self.client_options.opponent_nick
         # Get the game's name
         name = self.client_options.name
         # Get the list of moves
         moves = self.moves
-        return f'GameSession({author_name}, {opponent_name}, {name}, {moves})'
+        # Get the client options
+        client_options = str(self.client_options)
+        return f'GameSession({author_name}, {opponent_name}, {name}, {moves}, {client_options})'
     
     def new_game(self):
         '''
@@ -302,12 +317,11 @@ class ClientGameSession(GameSession):
                 ret_str += f'\n{next(stalemate_2p if self.client_options.players == 2 else stalemate_1p)}'
             # No need to do anything else; caller will check if the game is over as well
 
-        else: # No need to ping if the game is over
+        else: # If it's not game over, maybe ping the next player
             # TODO: add flavor text here too
-            if self.client_options.ping_white and self.turn == WHITE:
-                ret_str += f'\n <@{self.client_options.white_id}>, it\'s your turn!'
-            elif self.client_options.ping_black and self.turn == BLACK:
-                ret_str += f'\n <@{self.client_options.black_id}>, it\'s your turn!'
+            ping_str = self.client_options.get_ping_str(self.turn)
+            if ping_str:
+                ret_str += f'\n{ping_str}, it\'s your turn!'
 
         return ret_str
 
@@ -334,15 +348,17 @@ class ClientGameSession(GameSession):
         await self.ws.close()
         self.connected = False
     
-    def to_json(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         '''
-        Convert the game to a JSON object.
+        Convert the game to a serializable object.
         '''
-        return {
-            'board': self.board.fen(),
-            'last_move': self.last_move,
-            'game_options': self.game_options,
-            'client_options': self.client_options,
-            'session_id': self.session_id,
-            'connected': self.connected
-        }
+        ret = super().to_dict()
+        ret['client_options'] = self.client_options.to_dict()
+        return ret
+
+    @classmethod
+    def from_dict(cls, json_dict: Dict[str, str]) -> 'ClientGameSession':
+        '''Load a game from a serialized object'''
+        json_dict['client_options'] = ClientOptions.from_dict(json_dict['client_options'])
+        return cls(**json_dict)
+    

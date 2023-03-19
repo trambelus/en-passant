@@ -32,20 +32,22 @@ ENGINE_EXECUTABLE = os.getenv('EP_ENGINE_EXECUTABLE', 'engine_executable_unset')
 
 # Required only for client
 ENGINE_HOST = os.getenv('EP_ENGINE_HOST', '') # Can be set on server side as well, but not required. Leave blank to accept connections addressed anywhere.
-APP_ID = os.getenv('EP_APP_ID', 'app_id_unset')
 APP_PUBLIC_KEY = os.getenv('EP_APP_PUBLIC_KEY', 'app_public_key_unset')
+BOT_ID = os.getenv('EP_BOT_ID', 'bot_id_unset')
 BOT_TOKEN = os.getenv('EP_BOT_TOKEN', 'bot_token_unset')
 HOME_GUILD_ID = os.getenv('EP_HOME_GUILD_ID', 'home_guild_id_unset')
 ADMIN_CHANNEL_ID = os.getenv('EP_ADMIN_CHANNEL_ID', 'admin_channel_id_unset')
+# Filenames for JSON caches
+ACTIVE_GAMES_CACHE_FILE = os.getenv('EP_ACTIVE_GAMES_CACHE', 'active_games.json')
+EMOJI_CACHE_FILE = os.getenv('EP_EMOJI_CACHE', 'emoji_map.json')
 
 # Hard-coded values
 ENGINE_URL_AUTH = f'wss://{ENGINE_USER}:{ENGINE_PW}@{ENGINE_HOST}:{ENGINE_PORT}/ws'
 ENGINE_URL_NOAUTH = f'ws://{ENGINE_HOST}:{ENGINE_PORT}/ws'
 ENGINE_URL = ENGINE_URL_AUTH if ENGINE_USER and ENGINE_PW else ENGINE_URL_NOAUTH
 
-DEFAULT_GAME_OPTIONS = {'variant': None, 'chess960_pos': -1}
+DEFAULT_GAME_OPTIONS = {'variant': 'standard', 'chess960_pos': -1}
 DEFAULT_ENGINE_OPTIONS = {'level': 5, 'depth': 20, 'move_time': 1000, 'engine_color': 'black', 'contempt': 0}
-DEFAULT_CLIENT_OPTIONS = {}
 
 LOG_CONFIG = {
     'version': 1,
@@ -68,7 +70,7 @@ LOG_CONFIG = {
             'formatter': 'verbose',
         },
         'console': {
-            'level': 'DEBUG',
+            'level': 'INFO',
             'class': 'logging.StreamHandler',
             'formatter': 'simple',
             'stream': 'ext://sys.stdout',

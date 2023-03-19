@@ -9,11 +9,13 @@ from interactions.utils.get import get
 
 from client_session import ClientGameSession, board_to_emoji
 from client_options import ClientOptions
+from game_manager import game_manager, save_after
 from command_defs import commands
+from client_utils import get_last_moves
 
 logger = logging.getLogger(__name__)
 
-def register_game_commands(client: interactions.Client, active_games: Dict[int, ClientGameSession]):
+def register_game_commands(client: interactions.Client):
     '''Implement and implicitly register game-related slash commands.'''
     # TODO: use some kind of manager to handle the active games instead of a dict
     # Maybe a singleton class?
@@ -21,40 +23,8 @@ def register_game_commands(client: interactions.Client, active_games: Dict[int, 
     logger.info("Registering game commands")
 
     # Decorators take care of registering the commands with the interactions library.
-    @client.command(
-        name=commands['game_commands']['new']['name'],
-        description=commands['game_commands']['new']['description'],
-        scope=commands['game_commands']['GUILD_ID'],
-        options=[
-            interactions.Option(
-                name='color',
-                description='The color to play as',
-                type=interactions.OptionType.STRING,
-                required=True,
-                choices=[
-                    interactions.Choice(
-                        name='White',
-                        value='white'
-                    ),
-                    interactions.Choice(                            
-                        name='Black',
-                        value='black'
-                    ),
-                    interactions.Choice(
-                        name='Random',
-                        value='random'
-                    )
-                ]
-            ),
-            interactions.Option(
-                name='vs',
-                # description='The opponent to play against ("bot" to play against AI, or mention a user to play against them)',
-                description='Mention a user to play against them',
-                type=interactions.OptionType.STRING,
-                required=True,
-            ),                    
-        ]
-    )
+    @client.command(**commands['game_commands']['new'])
+    @save_after
     async def new_game(ctx: interactions.CommandContext, color: str, vs: str) -> None:        
         '''Create a new game.'''
         try:
@@ -82,8 +52,8 @@ def register_game_commands(client: interactions.Client, active_games: Dict[int, 
 
             # Define client options
             client_options_dict = {
-                'author': ctx.author,
-                'opponent': vs_member,
+                'author_id': ctx.author.id,
+                'opponent_id': vs_member.id,
                 'author_is_white': color == 'white',
                 'author_nick': author_nick,
                 'opponent_nick': vs_nick,
@@ -99,39 +69,49 @@ def register_game_commands(client: interactions.Client, active_games: Dict[int, 
             # Create a new GameSession
             game_session = ClientGameSession(client_options=client_options)
 
-            # Add the GameSession to the list of active games
-            active_games[thread.id] = game_session
-            # Send response
+            # Register the session with the game manager
+            game_manager.add_game(thread.id, game_session)
+
+            # Send response in the current channel
             await ctx.send(content=f'New game started in {thread.mention}!')
-            # Send the board
+
+            # Send the board in the thread
             msg_content = game_session.new_game()
             await thread.send(content=msg_content)
+
             # TODO: modal to specify AI game or human game, and if human game, who to play against, and what color to play as, and whether to ping them
+            # Modals are shiny and new, and current bots probably don't use them, so it would be a nice touch.
         except Exception as e:
             logger.exception(e)
             await ctx.send(content='Error creating new game!')
             if thread:
                 await thread.delete()
+    
+    @client.command(**commands['game_commands']['move'])
+    async def foo(ctx: interactions.CommandContext, move: str) -> None:
+        await make_move(ctx, move)
 
-    @client.command(
-        name=commands['game_commands']['move']['name'],
-        description=commands['game_commands']['move']['description'],
-        scope=commands['game_commands']['GUILD_ID'],
-        options=[
-            interactions.Option(
-                name='move',
-                description='The move to make, in SAN format (e.g. e4, Nf3, etc.) or UCI format (e.g. e2e4, g1f3, etc.)',
-                type=interactions.OptionType.STRING,
-                required=True
-            ),
-        ],
-    )
+    # @client.command(**commands['game_commands']['move'])
+    @save_after
     async def make_move(ctx: interactions.CommandContext, move: str) -> None:
+        '''Make a move in the current game.'''
+
         # Get the game session from the list of active games
         try:
-            game_session = active_games[ctx.channel_id]
+            game_session = game_manager.get_game(ctx.channel_id)
         except KeyError:
-            await ctx.send(content='No active game in this channel!')
+            # Check if we're in a thread, to provide a more helpful error message
+            if ctx.channel.type in [interactions.ChannelType.PUBLIC_THREAD, interactions.ChannelType.PRIVATE_THREAD]:
+                # First see if the bot sent a message containing a board in this thread
+                if ctx.channel.last_message_id:
+                    if get_last_moves(ctx.channel):
+                        logger.info(f'Attempting to resume game from last message in thread {ctx.channel_id}')
+                        await ctx.send('I spotted a game up there, but I don\'t have enough information to resume it. Please use the `/resume` command to resume the game from a specific position, or use the `/new` command to start a new game.')
+                        return # TODO
+
+                await ctx.send(content='No active game found in this thread! If you want to try resuming a game from a specific position, please use the `/resume` command.')
+            else:
+                await ctx.send(content='You can only make moves in a game thread! To start a new game, use the `/new` command.')
             # TODO: support resuming games from channel data (e.g. if the bot restarts)
             return
         
@@ -146,6 +126,20 @@ def register_game_commands(client: interactions.Client, active_games: Dict[int, 
         # Check if the game is over after making the move
         if game_session.is_game_over:
             # Lock the thread
-            await ctx.channel.lock(reason='Game over')
+            try:
+                await ctx.channel.lock(reason='Game over')
+            except Exception as e:
+                logger.exception(e)
+                await ctx.send(content='Error locking thread!')
             # Remove the game from the list of active game
-            del active_games[ctx.channel_id]
+            game_manager.remove_game(ctx.channel_id)
+
+    @client.command(
+        name='lock',
+        description='Lock the current thread',
+        scope=commands['game_commands']['GUILD_ID'],
+    )
+    async def lock_thread(ctx: interactions.CommandContext) -> None:
+        await ctx.send(content='Locking thread...')
+        await ctx.channel.lock(reason='User requested lock')
+        await ctx.send(content='Thread locked!')

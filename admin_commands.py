@@ -8,7 +8,8 @@ from typing import Dict
 import interactions
 
 from command_defs import commands
-from config import HOME_GUILD_ID
+from config import HOME_GUILD_ID, EMOJI_CACHE_FILE
+from client_utils import cleanup
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ async def refresh_emoji_names(client: interactions.Client) -> Dict[str, str]:
         emoji_map[emoji_name] = f'<:{emoji_name}:{emoji["id"]}>'
         logger.debug(f'Added emoji {emoji_name} to map with id {emoji["id"]}')
     # Save the emoji map to the JSON file
-    with open('emoji_map.json', 'w') as f:
+    with open(EMOJI_CACHE_FILE, 'w') as f:
         json.dump(emoji_map, f, indent=4)
         logger.debug('Saved emoji map to file')
     return emoji_map
@@ -81,3 +82,23 @@ def register_admin_commands(client: interactions.Client):
         logger.warning(f'Evaluated code: {code} -> {result}')
         await ctx.send(content=f'```{result}```')
 
+    @client.command(
+        name='cleanup',
+        description='Clean up the message at the given ID',
+        scope=commands['admin_commands']['GUILD_ID'],
+        options=[
+            interactions.Option(
+                name='message_id',
+                description='The ID of the message to clean up',
+                type=interactions.OptionType.STRING,
+                required=True
+            )
+        ]
+    )
+    async def _cleanup(ctx: interactions.CommandContext, message_id: str) -> None:
+        if await cleanup(client, message_id, ctx.channel_id):
+            # If the cleanup was successful, send a confirmation message (ephemeral)
+            await ctx.send(content='Message cleaned up!', ephemeral=True)
+        else:
+            # If the cleanup failed, send an error message (ephemeral)
+            await ctx.send(content='Failed to clean up message!', ephemeral=True)

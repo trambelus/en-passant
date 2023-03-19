@@ -49,15 +49,15 @@ draw_1p_strings = {
 
 checkmate_2p_strings = {
     'strings': [
-        'Checkmate! You win, {winner}!',
         'Checkmate! {winner} wins!',
-        'Checkmate! {winner} has defeated {loser}!',
-        'Checkmate! {winner} has vanquished {loser}!',
-        'Checkmate! {winner} has triumphed over {loser}!',
-        'Checkmate! {winner} has bested {loser}!',
-        'Checkmate! {winner} has defeated {loser} in a thrilling bout we shall never forget, until we do!',
-        'Checkmate! Well done, {winner}! Better luck next time, {loser}!',
-        'Checkmate! Well played, {winner}! Better luck next time, {loser}!',
+        # 'Checkmate! You win, {winner}!',
+        # 'Checkmate! {winner} has defeated {loser}!',
+        # 'Checkmate! {winner} has vanquished {loser}!',
+        # 'Checkmate! {winner} has triumphed over {loser}!',
+        # 'Checkmate! {winner} has bested {loser}!',
+        # 'Checkmate! {winner} has defeated {loser} in a thrilling bout we shall never forget, until we do!',
+        # 'Checkmate! Well done, {winner}! Better luck next time, {loser}!',
+        # 'Checkmate! Well played, {winner}! Better luck next time, {loser}!',
     ],
     'type': 'random'
 }
@@ -73,36 +73,36 @@ checkmate_2p_upset_strings = {
 draw_2p_strings = {
     'strings': [
         'Draw!',
-        'Draw! Oh well.',
-        'Draw! Oh well, maybe the next game will have an actual ending.',
-        'Draw! How boring!',
-        'Draw! You\'re both losers!',
-        'Draw! You\'re both winners!',
-        'Draw! You\'re both losers, but at least you\'re losers together!',
-        'Draw! What a spectacular anticlimax!',
+        # 'Draw! Oh well.',
+        # 'Draw! Oh well, maybe the next game will have an actual ending.',
+        # 'Draw! How boring!',
+        # 'Draw! You\'re both losers!',
+        # 'Draw! You\'re both winners!',
+        # 'Draw! You\'re both losers, but at least you\'re losers together!',
+        # 'Draw! What a spectacular anticlimax!',
     ],
     'type': 'random'
 }
 stalemate_2p_strings = {
     'strings': [
         'Stalemate!',
-        'Stalemate! Oh well.',
-        'Stalemate! Oh well, maybe the next game will have an actual ending.',
-        'Stalemate! Is that really the best you can do?',
-        'Stalemate! You\'re both losers!',
-        'Stalemate! You\'re both winners!',
-        'Stalemate! You\'re both losers, but at least you\'re losers together!',
-        'Stalemate! What an anticlimax!',        
+        # 'Stalemate! Oh well.',
+        # 'Stalemate! Oh well, maybe the next game will have an actual ending.',
+        # 'Stalemate! Is that really the best you can do?',
+        # 'Stalemate! You\'re both losers!',
+        # 'Stalemate! You\'re both winners!',
+        # 'Stalemate! You\'re both losers, but at least you\'re losers together!',
+        # 'Stalemate! What an anticlimax!',        
     ],
     'type': 'random'
 }
 resign_2p_strings = {
     'strings': [
         '{loser} resigns! {winner} wins!',
-        '{loser} resigns! Well played, {winner}!',
-        '{loser} resigns! {loser} is a quitter! {winner} has won!',
-        '{loser} resigns! {winner} wins! Congratulations, {winner}!',
-        '{loser} resigns! I\'d resign too against {winner}.',
+        # '{loser} resigns! Well played, {winner}!',
+        # '{loser} resigns! {loser} is a quitter! {winner} has won!',
+        # '{loser} resigns! {winner} wins! Congratulations, {winner}!',
+        # '{loser} resigns! I\'d resign too against {winner}.',
     ],
     'type': 'random'
 }

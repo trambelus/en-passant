@@ -1,22 +1,19 @@
 # Maintains set of active game sessions and handles Discord interactions
 
-import asyncio
 import json
 import logging
 import sys
 from pprint import pformat
-from typing import Dict, List
 
-import chess
 import interactions
-import websockets
+from interactions import Intents
+from interactions.utils.get import get
 
 import client_session
 from admin_commands import refresh_emoji_names, register_admin_commands
-from client_session import board_to_emoji
-from command_defs import commands
-from config import BOT_TOKEN, HOME_GUILD_ID
+from config import BOT_TOKEN, HOME_GUILD_ID, EMOJI_CACHE_FILE
 from game_commands import register_game_commands
+from game_manager import load_active_games
 
 # TODO:
 # - Add support for resuming games (e.g. if the bot restarts)
@@ -33,16 +30,24 @@ from game_commands import register_game_commands
 # - Add support for zero-player games (AI vs AI)
 # - Add puzzles (lichess?)
 # - Add support for multiple engines (stockfish, maia, leela, etc.)
-# - Support engine info arriving asynchronously, not in response to a request (better moves when given time to think)
+# - Support engine info arriving asynchronously, not in response to a request (better moves when given time to think)]
+# Commands to add:
+# - /again command to play the same game again (same options, color, opponent, etc.)
+# - /undo command to undo the last move
+# - /resign command to resign the game
+# - /draw command to offer a draw
+# - /accept command to accept a draw or undo request
+# - /decline command to decline a draw or undo request
 
 logger = logging.getLogger(__name__)
 
 # TODO: figure out what file to put this in; it doesn't seem to belong anywhere in particular
-def load_emoji_names() -> Dict[str, str]:
+# Probably the serializer module, when I get around to writing it (PersistenceManager? PersistenceService?)
+def load_emoji_names() -> dict[str, str]:
     '''Load the emoji names from the emoji_map JSON file'''
     # Open the emoji_map JSON file
     try:
-        with open('emoji_map.json', 'r') as f:
+        with open(EMOJI_CACHE_FILE, 'r') as f:
             # Load the JSON file
             emoji_map = json.load(f)
             logger.info('Emoji map loaded from file')
@@ -52,40 +57,20 @@ def load_emoji_names() -> Dict[str, str]:
         logger.warning('Emoji map file not found; querying Discord API for emoji IDs')
         return None
 
-def save_active_games(active_games: Dict[str, client_session.ClientGameSession]):
-    '''Save the active games to a JSON file'''
-    # Open the active_games JSON file
-    with open('active_games.json', 'w') as f:
-        # Save the active games to the JSON file
-        json.dump({k: v.to_json() for k, v in active_games}, f, indent=4, default=lambda o: o.__dict__)
-
-def load_active_games() -> Dict[str, client_session.ClientGameSession]:
-    '''Load the active games from the active_games JSON file'''
-    try:
-        # Open the active_games JSON file
-        with open('active_games.json', 'r') as f:
-            # Load the JSON file
-            active_games = json.load(f)
-            # Convert the JSON objects to ClientGameSession objects
-            for game_id, game in active_games.items():
-                active_games[game_id] = client_session.ClientGameSession.from_json(game)
-            logger.info('Active games loaded from file')
-            return active_games
-    except FileNotFoundError:
-        # If the file does not exist, return an empty dict
-        logger.warning('Active games file not found; starting with no active games')
-        return {}
-
 def main():
-    # Load the active games from the JSON file
-    active_games = load_active_games()
-    client = interactions.Client(token=BOT_TOKEN)
+    # Load the active games into the game manager
+    load_active_games()
+    # client = interactions.Client(token=BOT_TOKEN, intents=Intents.DEFAULT | Intents.GUILD_MESSAGE_CONTENT)
+    # It seems like GUILD_MESSAGE_CONTENT isn't required to pick up relevant THREAD_CREATED events, so we'll leave it out for now
+    client = interactions.Client(token=BOT_TOKEN, intents=Intents.DEFAULT)
     register_admin_commands(client)
-    register_game_commands(client, active_games)
+    register_game_commands(client)
 
     @client.event
     async def on_ready():
+        logger.debug('\\/' * 50)
         logger.info('Bot is ready')
+        logger.debug('/\\' * 50)
         # Attempt to load the emoji names from the JSON file, and if that fails, refresh them from the Discord API
         emoji_map = load_emoji_names() or await refresh_emoji_names(client)
         if not emoji_map:
@@ -93,15 +78,6 @@ def main():
             logger.error('Exiting...')
             sys.exit(1)
         client_session.populate_emoji_map(emoji_map)
-
-    @client.command(
-        name=commands['admin_commands']['ping']['name'],
-        description=commands['admin_commands']['ping']['description'],
-        scope=commands['admin_commands']['GUILD_ID']
-    )
-    async def show_board(ctx: interactions.CommandContext):
-        response_str = 'Pong! \n' + board_to_emoji(chess.Board())
-        await ctx.send(content=response_str)
         
     # Run the bot
     try:

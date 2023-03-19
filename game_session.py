@@ -1,10 +1,9 @@
 # Common elements for client and server relating to game state
 
-import json
 import logging
 import re
 import uuid
-from typing import Dict, List
+from typing import Any
 
 import chess
 import chess.variant
@@ -28,39 +27,68 @@ class GameSession:
     - time_limit: the time limit for each player, in seconds
     - increment: the increment for the game, in seconds
     '''
-    def __init__(self, fen: str = None, moves: List[str] = [], game_options: Dict[str, str] = DEFAULT_GAME_OPTIONS, session_id: str = None):
-        '''Set board, fen, game options, variant, chess960 position, and moves. Generate a session ID if one is not provided.'''
-        self.session_id = session_id or generate_session_id()
-        self.game_options = game_options
-        self.variant = game_options.get('variant') # TODO: implement variants
+    def __init__(self, fen: str = None, moves: list[str] = [], game_options: dict[str, Any] = DEFAULT_GAME_OPTIONS, session_id: str | None = None):
+        '''
+        Set board, fen, game options, variant, chess960 position, and moves.
+        :param str fen: the FEN string to set the board to
+        :param list[str] moves: a list of moves in SAN or UCI format to apply to the board on init. Overrides fen string if both are present.
+        :param dict[str, Any] game_options: a dictionary of game options (e.g. variant)
+        :param str session_id: the session ID to use for this game session. If not provided, a random UUID will be used.
+        Note: The session ID should generally match the Discord channel ID for the game.
+        In the client session subclass, this is a Snowflake, but it's a string here to avoid a dependency on the interactions library in the backend.
+        Note: fen and moves are mutually exclusive. If both are provided, moves will be applied to the board.
+        If you want to apply moves to a board with a non-standard starting position, you'll need to set the board to the starting position first with reset_board(fen),
+        then apply the moves with apply_moves(moves).
+        '''
+        self.session_id: str = str(session_id) or generate_session_id()
+
+        self.game_options: dict[str, Any] = game_options
+        self.variant: str = game_options.get('variant', 'standard') # TODO: implement variants
         # Handle chess960 start position
         try:
             self.chess960_pos = int(game_options.get('chess960_pos', -1))
         except ValueError:
-            logger.warn(f'Invalid chess960 starting position id \'{game_options.get("chess960_pos")}\'; defaulting to standard chess')
+            logger.warn(f'Invalid chess960 starting position \'{game_options.get("chess960_pos")}\'; defaulting to standard chess')
             self.chess960_pos = -1
 
         # Attempt to apply moves, if any, and revert to starting position if any are invalid.
         # If this fails, attempt to set the board from the fen parameter instead.
         # If that fails, set the board to the starting position.
 
-        self.moves = [] # list of moves in SAN format, maintained throughout the game since the board doesn't store them.
-                        # Stored as SAN regardless of whether the client wants moves displayed in SAN or UCI,
-                        # since the board does store them in UCI format via board.move_stack.
+        self.moves: list[str] = [] # list of moves in SAN format, maintained throughout the game since the board doesn't store them.
+                                   # Stored as SAN regardless of whether the client wants moves displayed in SAN or UCI,
+                                   # since the board does store them in UCI format (sort of) via board.move_stack.
         self.reset_board()
+        if not self.apply_moves(moves):
+            logger.warn('Could not apply moves; reverting to starting position')
+            self.reset_board(fen=fen)
+            self.moves = []
+    
+    def apply_moves(self, moves: list[str]) -> bool:
+        '''
+        Applies a list of moves to the board. Returns True if all moves were applied successfully, False otherwise.
+        '''
         for move_str in moves:
             try:
+                if move_str in ['0-1', '1-0', '1/2-1/2']:
+                    logger.info(f'Loaded board from moves with game over indicated: {move_str}')
+                    break
                 move = self.parse_move(move_str)
                 self.moves.append(self.board.san(move))
                 self.board.push(move)
             except (chess.InvalidMoveError, chess.AmbiguousMoveError, chess.IllegalMoveError):
-                logger.warn(f'Could not parse move \'{move_str}\' in moves list; defaulting to starting position')
-                self.reset_board()
-                self.moves = []
-                self.fen = fen
-                break
-    
-    def reset_board(self):
+                logger.warn(f'Could not parse move \'{move_str}\' in moves list!')
+                return False
+        return True
+
+    def reset_board(self, fen: str | None = None) -> chess.Board:
+        if fen is not None:
+            try:
+                self.board = chess.Board()
+                self.fen = fen # Also sets the board to the FEN string (gotta remember it's a property)
+                return self.board
+            except ValueError:
+                logger.warn(f'Invalid FEN string \'{fen}\'; defaulting to starting position')
         if self.chess960_pos >= 0:
             self.board = chess.Board.from_chess960_pos(self.chess960_pos)
         elif self.variant is not None and self.variant != 'standard':
@@ -71,7 +99,7 @@ class GameSession:
             except ValueError:
                 logger.warn(f'Unknown variant \'{self.variant}\'; defaulting to standard chess')
                 self.board = chess.Board()
-                self.variant = None
+                self.variant = 'standard'
         else:
             self.board = chess.Board()
         return self.board
@@ -99,7 +127,7 @@ class GameSession:
             except chess.AmbiguousMoveError as e:
                 logger.warn(f'Ambiguous move: \'{move_str}\'')
                 raise e
-            except e:
+            except Exception as e:
                 # If it's not an InvalidMoveError or AmbiguousMoveError, it's probably an IllegalMoveError, so we'll just re-raise it for the block below.
                 # And if it's something else, we'll just let it propagate up.
                 raise e
@@ -125,14 +153,14 @@ class GameSession:
                 self.board.push(move)
             except chess.IllegalMoveError as e:
                 # I would mark this as critical, but it's recoverable, so I'll just mark it as an error.
-                logger.error(f'FIXME: Illegal move in push_move: \'{move}\'. This should not happen.')
+                logger.error(f'Illegal move in push_move: \'{move}\'. This should not happen.')
                 self.moves = self.moves[:previous_moves_len]
                 raise e
 
     def check_warning(self, move_str: str) -> str | None:
         '''If the given move specifies check or checkmate, verify that it is correct.
         Also provide messages for when check or other non-game-ending states have occurred.'''
-        if self.board.is_check():
+        if self.board.is_check() and not self.board.is_checkmate():
             if move_str.endswith('#'):
                 return 'User called a checkmate, but this move results in check!'
             else:
@@ -143,21 +171,23 @@ class GameSession:
             return 'User called a checkmate, but this move does not result in checkmate!'
         return None
     
-    def to_json(self) -> str:
-        '''Returns a JSON string representation of this object.'''
-        # It shouldn't be strictly necessary to include the fen parameter, since it's only used if the moves list is empty,
-        # but it's included for completeness.
-        return json.dumps({
+    def to_dict(self) -> dict[str, Any]:
+        '''Returns a serializable dict representation of this object.'''
+        # It shouldn't be strictly necessary to include the fen parameter, since it's only used in initialization
+        # if the moves list is empty, but it's included for completeness.
+        ret = {
             'fen': self.fen,
             'moves': self.moves,
             'game_options': self.game_options,
             'session_id': self.session_id,
-        })
+        }
+        logger.debug(f'GameSession.to_dict: {ret}')
+        return ret
 
     @staticmethod
-    def from_json(json_str: str) -> 'GameSession':
-        '''Returns a GameSession object from the given JSON string.'''
-        return GameSession(**json.loads(json_str))
+    def from_dict(d: dict[str, Any]) -> 'GameSession':
+        '''Returns a GameSession object from the given dict.'''
+        return GameSession(**d)
 
     # Properties
     @property
@@ -174,8 +204,9 @@ class GameSession:
     def fen(self) -> str:
         '''Returns the FEN of the current board position.'''
         return self.board.fen()
+
     @fen.setter
-    def fen(self, fen: str) -> None:
+    def fen(self, fen: str | None) -> None:
         '''Sets the board position to the given FEN, or to the starting position if None is given.'''
         if fen is None:
             self.reset_board()
@@ -183,12 +214,12 @@ class GameSession:
             self.board.set_fen(fen)
 
     @property
-    def san_moves(self) -> List[str]:
+    def san_moves(self) -> list[str]:
         '''Returns the list of moves in SAN.'''
         return self.moves
     
     @property
-    def uci_moves(self) -> List[str]:
+    def uci_moves(self) -> list[str]:
         '''Returns the list of moves in UCI.'''
         return [move.uci() for move in self.board.move_stack]
     
@@ -282,15 +313,19 @@ def levenshtein(s1: str, s2: str) -> int:
 
     return previous_row[-1]
 
-def correct_bad_move(move: str, board: chess.Board) -> List[str]:
-    '''Returns a list of all legal moves within a levenshtein distance of 2 from the given move, in SAN format.'''
+def correct_bad_move(move_str: str, board: chess.Board) -> list[str]:
+    '''
+    Returns a list of all legal moves resembling the given move, in SAN format.
+    If the given move string is more than 2 characters long, only moves that are within 2 levenshtein distance of the given move will be returned.
+    Otherwise, all legal moves that are within 1 levenshtein distance of the given move will be returned.
+    '''
     matches = []
     for legal_move in board.legal_moves:
-        if levenshtein(move, board.san(legal_move)) <= 2:
+        if levenshtein(move_str, board.san(legal_move)) <= min(2, len(move_str) - 1):
             matches.append(board.san(legal_move))
     return sorted(matches)
 
-def disambiguate_move(ambiguous_san: str, board: chess.Board) -> List[str]:
+def disambiguate_move(ambiguous_san: str, board: chess.Board) -> list[str]:
     '''Returns a list of all legal moves that match the given ambiguous move string, in SAN format.'''
     matches = []
     for move in board.legal_moves:
@@ -304,32 +339,29 @@ def disambiguate_move(ambiguous_san: str, board: chess.Board) -> List[str]:
         
     return matches
 
-def tokenize_move(move: str) -> Dict[str, str]:
+def tokenize_move(move: str) -> dict[str, str]:
     '''
     Returns a dict representing the parsed elements of the given move, whether in UCI or SAN format, e.g.:
     "Nbxc3+" ->
     {
         'piece': 'N',
-        'from_rank': 'b',
-        'from_file': None,
+        'from_file': 'b',
+        'from_rank': None,
         'capture': 'x',
-        'to_rank': 'c',
-        'to_file': '3',
+        'to_file': 'c',
+        'to_rank': '3',
         'promotion': None,
-        'check': '+'
+        'check': '+',
+        'result': None
     }
+    The 'result' field, when present, will be '1-0', '0-1', or '1/2-1/2'.
     For SAN moves, the 'from_rank' and 'from_file' fields will be None if they are not specified, and 'piece' will be 'P' if no piece is specified.
     For UCI moves, the 'from_rank' and 'from_file' fields are always specified, and 'piece' will be None.
     But this method won't freak out if you give it a move that combines elements of both formats, e.g. 'e2xd3', which is underspecified for a standard SAN move,
     overspecified for a pawn SAN move, and includes a capture, which is not allowed in UCI.
     '''
     ret = {}
-    pattern = re.compile(r'^(?P<piece>[KQRBN])?\
-                         (?P<from_rank>[a-h])??(?P<from_file>[1-8])??\
-                         (?P<capture>x)?\
-                         (?P<to_rank>[a-h])(?P<to_file>[1-8])\
-                         (?P<promotion>[=\/]?[QRBNqrbn])?\
-                         (?P<check>[+#])?$')
+    pattern = re.compile(r'^(?:(?:(?P<piece>[KQRBN])?(?P<from_file>[a-h])?(?P<from_rank>[1-8])?(?P<capture>x)?(?P<to_file>[a-h])(?P<to_rank>[1-8])(?P<promotion>([=\/]?[QRBNqrbn]))?|(?P<castle>O-O(?:-O)?))(?P<check>[+#])?|(?P<result>1-0|0-1|1\/2-1\/2))$')
     match = pattern.match(move)
     if match:
         ret = match.groupdict()

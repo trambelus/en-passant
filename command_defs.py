@@ -2,6 +2,8 @@
 # Was originally JSON, but it's a Python dict now because subsituting variables is easier.
 # Also might be easier to define options compatible with discord interactions.
 
+from interactions import Option, OptionType, Choice
+
 from config import HOME_GUILD_ID, ADMIN_CHANNEL_ID
 
 commands = {
@@ -42,11 +44,33 @@ commands = {
         "CHANNEL_ID": None,
         "new": {
             "name": "new",
-            "description": "Start a new game."
+            "description": "Start a new game.",
+            "scope": int(HOME_GUILD_ID),
+            "options": [
+                Option(
+                    name='color',
+                    description='The color to play as',
+                    type=OptionType.STRING,
+                    required=True,
+                    choices=[
+                        Choice(name='White', value='white'),
+                        Choice(name='Black', value='black'),
+                        Choice(name='Random', value='random')
+                    ]
+                ),
+                Option(
+                    name='vs',
+                    description='Mention a user to play against them',
+                    #description='Mention a user to play against them, or "bot" to play against AI',
+                    type=OptionType.STRING,
+                    required=True,
+                ),                    
+            ]
         },
         "option": {
             "name": "option",
             "description": "Set an option, e.g. /option level 5"
+            # TODO: use subcommands for this?
         },
         "list_options": {
             "name": "list_options",
@@ -54,7 +78,16 @@ commands = {
         },
         "move": {
             "name": "move",
-            "description": "Make a move, e.g. e4 or e2e4"
+            "description": "Make a move, e.g. e4 or e2e4",
+            "scope": int(HOME_GUILD_ID),
+            "options": [
+                Option(
+                    name='move',
+                    description='Your move in SAN format (e.g. e4, Nf3) or UCI format (e.g. e2e4, g1f3)',
+                    type=OptionType.STRING,
+                    required=True
+                ),
+            ]
         },
         "moves": {
             "name": "moves",
