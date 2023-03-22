@@ -7,6 +7,8 @@ resources/compiled/
 *.log.[0-9][0-9]
 *.log.[0-9][0-9][0-9]
 *.json
+*.code-workspace
+runtime-data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

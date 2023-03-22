@@ -5,7 +5,6 @@ import datetime
 import inspect
 from functools import wraps
 import logging
-from asyncio import sleep
 
 from interactions import Snowflake, Client
 from interactions.api.models.channel import Channel

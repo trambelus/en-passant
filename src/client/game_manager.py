@@ -6,13 +6,12 @@
 
 import json
 import logging
-import datetime
-import re
 
 from interactions import Snowflake
 
-from client_session import ClientGameSession
 from config import ACTIVE_GAMES_CACHE_FILE
+
+from .client_session import ClientGameSession
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +88,7 @@ class GameManager:
         return {k: v.to_dict() for k, v in self._active_games.items()}
     
 # Get the singleton instance of GameManager
-game_manager = GameManager()
+game_manager: GameManager = GameManager()
 
 def save_after(func):
     '''Decorator to add a task to save the active games to a JSON file after the decorated coroutine is called.'''
