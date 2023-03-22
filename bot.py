@@ -11,7 +11,7 @@ from interactions.utils.get import get
 
 import client_session
 from admin_commands import refresh_emoji_names, register_admin_commands
-from config import BOT_TOKEN, HOME_GUILD_ID, EMOJI_CACHE_FILE
+from config import BOT_TOKEN, EMOJI_CACHE_FILE, HOME_GUILD_ID
 from game_commands import register_game_commands
 from game_manager import load_active_games
 
@@ -27,13 +27,17 @@ from game_manager import load_active_games
 # - Add command for spectating games in a private thread with engine-supplied analysis
 #     - Web-based UI for spectating games? Stretch goal.
 #     - Can GPT-3 be used to generate analysis?
+# - Investigate using buttons for moves instead of text commands
+# - Overhaul message format to use embeds
 # - Add support for zero-player games (AI vs AI)
 # - Add puzzles (lichess?)
 # - Add support for multiple engines (stockfish, maia, leela, etc.)
-# - Support engine info arriving asynchronously, not in response to a request (better moves when given time to think)]
+# - Support engine info arriving asynchronously, not in response to a request (better moves when given time to think)
+# - Fog of war (hide opponent's pieces) - use ephemeral messages? /peek command?
+# - Isolate all string literals into a separate file
 # Commands to add:
 # - /again command to play the same game again (same options, color, opponent, etc.)
-# - /undo command to undo the last move
+# - /undo command to (request to) undo the last move
 # - /resign command to resign the game
 # - /draw command to offer a draw
 # - /accept command to accept a draw or undo request

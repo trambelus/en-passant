@@ -13,7 +13,6 @@ from interactions import Snowflake
 
 from client_session import ClientGameSession
 from config import ACTIVE_GAMES_CACHE_FILE
-from client_utils import validate_discord_snowflake, to_discord_snowflake
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,7 @@ class GameManager:
         return cls.instance
 
     def __init__(self):
-        self._active_games: dict[Snowflake, ClientGameSession] = {}
+        self._active_games: dict[str, ClientGameSession] = {}
 
     def __len__(self) -> int:
         '''Get the number of active games.'''
@@ -50,22 +49,22 @@ class GameManager:
     
     def __getitem__(self, key: int | str | Snowflake):
         '''Get a game from the active games.'''
-        key = Snowflake(key)
+        key = str(key)
         return self._active_games[key]
     
     def __setitem__(self, key: int | str | Snowflake, value: ClientGameSession):
         '''Set a game in the active games.'''
-        key = Snowflake(key)
+        key = str(key)
         self._active_games[key] = value
 
     def __delitem__(self, key: int | str | Snowflake):
         '''Delete a game from the active games.'''
-        key = Snowflake(key)
+        key = str(key)
         del self._active_games[key]
     
     def __contains__(self, key: int | str | Snowflake):
         '''Check if a game is in the active games.'''
-        key = Snowflake(key)
+        key = str(key)
         return key in self._active_games
     
     def __repr__(self):
@@ -75,23 +74,19 @@ class GameManager:
     def __str__(self):
         return self.__repr__()
 
-    @validate_discord_snowflake
-    def add_game(self, game_id: Snowflake, game_session: ClientGameSession):
-        self._active_games[game_id] = game_session
+    def add_game(self, game_id: int | str | Snowflake, game_session: ClientGameSession):
+        '''Add a game to the active games. If the game already exists, it will be overwritten. Also saves the active games to a JSON file.'''
+        self[game_id] = game_session
+        save_active_games()
 
-    @validate_discord_snowflake
-    def remove_game(self, game_id: Snowflake):
-        '''Remove a game from the active games'''
-        self._active_games.pop(game_id)
-
-    @validate_discord_snowflake
-    def get_game(self, game_id: Snowflake) -> ClientGameSession:
-        '''Get a game from the active games'''
-        return self._active_games[game_id]
+    def remove_game(self, game_id: str):
+        '''Remove a game from the active games. Also saves the active games to a JSON file.'''
+        del self[game_id]
+        save_active_games()
 
     def to_dict(self) -> dict[str, dict[str, ClientGameSession]]:
         '''Convert the active games to a dict'''
-        return {str(k): v.to_dict() for k, v in self._active_games.items()}
+        return {k: v.to_dict() for k, v in self._active_games.items()}
     
 # Get the singleton instance of GameManager
 game_manager = GameManager()

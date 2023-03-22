@@ -3,33 +3,38 @@
 import json
 import logging
 from pprint import pformat
-from typing import Dict
+from functools import wraps
 
 import interactions
 
 from command_defs import commands
 from config import HOME_GUILD_ID, EMOJI_CACHE_FILE
-from client_utils import cleanup
 
 logger = logging.getLogger(__name__)
 
 def admin_channel_only(func):
     '''Decorator to check if a command is used in the admin channel'''
-    async def wrapper(ctx: interactions.CommandContext):
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        # Get the context from the arguments
+        ctx = args[0]
+        # Check for type safety, and if it's not there, log an error
+        if not isinstance(ctx, interactions.CommandContext):
+            logger.error(f'admin_channel_only decorator called with invalid context: {pformat(ctx)}')
+            return
         # Check if the command was used in the admin channel
         if ctx.channel_id == int(commands['admin_commands']['CHANNEL_ID']):
             # If so, call the function
-            await func(ctx)
+            return await func(*args, **kwargs)
         else:
             # If not, send an error message
             await ctx.send(content='Sorry, this command can only be used in the admin channel!')
-    # Set the wrapper function's name to the name of the function it wraps
-    wrapper.__name__ = func.__name__
+
     logger.debug(f'Created admin_channel_only decorator for {func.__name__}')
     return wrapper
 
 # Defined here so it can be imported by other modules
-async def refresh_emoji_names(client: interactions.Client) -> Dict[str, str]:
+async def refresh_emoji_names(client: interactions.Client) -> dict[str, str]:
     '''Get a list of all the emoji names from the server and use them to populate emoji_map'''
     # Get the list of emoji from the server
     emoji_map = {}
@@ -64,7 +69,7 @@ def register_admin_commands(client: interactions.Client):
     
     @client.command(
         name='eval',
-        description='Just eval. Please use responsibly, and note that the bot is not running as admin.',
+        description='Just eval—please use responsibly, and note that the bot is not running as admin.',
         scope=commands['admin_commands']['GUILD_ID'],
         options=[
             interactions.Option(
@@ -75,30 +80,12 @@ def register_admin_commands(client: interactions.Client):
             )
         ]
     )
+    async def __eval(ctx: interactions.CommandContext, code: str) -> None:
+        return await _eval(ctx, code)
+    
     @admin_channel_only
     async def _eval(ctx: interactions.CommandContext, code: str) -> None:
         '''Evaluate the given code'''
         result = pformat(eval(code))
         logger.warning(f'Evaluated code: {code} -> {result}')
         await ctx.send(content=f'```{result}```')
-
-    @client.command(
-        name='cleanup',
-        description='Clean up the message at the given ID',
-        scope=commands['admin_commands']['GUILD_ID'],
-        options=[
-            interactions.Option(
-                name='message_id',
-                description='The ID of the message to clean up',
-                type=interactions.OptionType.STRING,
-                required=True
-            )
-        ]
-    )
-    async def _cleanup(ctx: interactions.CommandContext, message_id: str) -> None:
-        if await cleanup(client, message_id, ctx.channel_id):
-            # If the cleanup was successful, send a confirmation message (ephemeral)
-            await ctx.send(content='Message cleaned up!', ephemeral=True)
-        else:
-            # If the cleanup failed, send an error message (ephemeral)
-            await ctx.send(content='Failed to clean up message!', ephemeral=True)

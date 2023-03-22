@@ -122,11 +122,11 @@ def contains_moves(msg: Message) -> bool:
     # Return true if the message contains a list of moves
     return get_moves(msg.content) is not None
 
-def get_last_moves(channel: Channel) -> list[str]:
+async def get_last_moves(channel: Channel) -> list[str]:
     '''
     Get the last message in a channel that corresponds to a move in a chess game (i.e. a message that contains a list of moves).
     '''
-    msg = next(channel.history(start_at=channel.last_message_id, maximum=100, reverse=True, check=contains_moves), None)
+    msg = await anext(channel.history(start_at=channel.last_message_id, maximum=100, reverse=True, check=contains_moves), None)
     if msg is None:
         return None
     # Get the moves from the message
@@ -134,13 +134,15 @@ def get_last_moves(channel: Channel) -> list[str]:
     # Remove the move numbers and split the string into a list of moves
     moves_list = re.sub(r' *\d+\. *', ' ', moves_str).strip().split(' ')
     # Remove empty strings
-    return [move for move in moves_list if move]
+    ret = [move for move in moves_list if move]
+    logger.debug(f'get_last_moves: Found moves: {ret}')
+    return ret
 
-async def cleanup(client: Client, msg_id: Snowflake, channel_id: Snowflake) -> bool:
+async def cleanup(client: Client, msg_id: int | str | Snowflake, channel_id: Snowflake) -> bool:
     '''
     Clean up after a failed execution of some sort.
     This includes deleting the "new game" message (which should match the ID), 
-    deleting the thread (if it exists), and sending an ephemeral message to the user.
+    deleting the thread (if it exists), and sending an ephemeral message to the user (which the caller handles).
     '''
     # Get the channel
     channel: Channel = await get(client=client, obj=Channel, object_id=channel_id)

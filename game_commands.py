@@ -2,23 +2,24 @@
 
 import logging
 import random
-from typing import Dict
+from base64 import b64decode, b64encode
+from json import dumps, loads
 
 import interactions
+from interactions import Button, ButtonStyle
 from interactions.utils.get import get
+from interactions.utils.utils import spread_to_rows
 
-from client_session import ClientGameSession, board_to_emoji
 from client_options import ClientOptions
-from game_manager import game_manager, save_after
+from client_session import ClientGameSession, board_to_emoji
+from client_utils import cleanup, get_last_moves
 from command_defs import commands
-from client_utils import get_last_moves
+from game_manager import game_manager, save_after
 
 logger = logging.getLogger(__name__)
 
 def register_game_commands(client: interactions.Client):
     '''Implement and implicitly register game-related slash commands.'''
-    # TODO: use some kind of manager to handle the active games instead of a dict
-    # Maybe a singleton class?
 
     logger.info("Registering game commands")
 
@@ -88,32 +89,30 @@ def register_game_commands(client: interactions.Client):
                 await thread.delete()
     
     @client.command(**commands['game_commands']['move'])
-    async def foo(ctx: interactions.CommandContext, move: str) -> None:
-        await make_move(ctx, move)
-
-    # @client.command(**commands['game_commands']['move'])
-    @save_after
-    async def make_move(ctx: interactions.CommandContext, move: str) -> None:
-        '''Make a move in the current game.'''
-
+    async def move_command(ctx: interactions.CommandContext, move: str) -> None:
         # Get the game session from the list of active games
         try:
-            game_session = game_manager.get_game(ctx.channel_id)
+            game_session = game_manager[ctx.channel_id]
         except KeyError:
             # Check if we're in a thread, to provide a more helpful error message
             if ctx.channel.type in [interactions.ChannelType.PUBLIC_THREAD, interactions.ChannelType.PRIVATE_THREAD]:
                 # First see if the bot sent a message containing a board in this thread
-                if ctx.channel.last_message_id:
-                    if get_last_moves(ctx.channel):
-                        logger.info(f'Attempting to resume game from last message in thread {ctx.channel_id}')
-                        await ctx.send('I spotted a game up there, but I don\'t have enough information to resume it. Please use the `/resume` command to resume the game from a specific position, or use the `/new` command to start a new game.')
-                        return # TODO
+                # if ctx.channel.last_message_id:
+                #     if await get_last_moves(ctx.channel):
+                #         logger.info(f'Attempting to resume game from last message in thread {ctx.channel_id}')
+                #         await ctx.send('I spotted a game up there, but I don\'t have enough information to resume it. Please use the `/resume` command to resume the game from a specific position, or use the `/new` command to start a new game.')
+                #         return # TODO
 
                 await ctx.send(content='No active game found in this thread! If you want to try resuming a game from a specific position, please use the `/resume` command.')
             else:
                 await ctx.send(content='You can only make moves in a game thread! To start a new game, use the `/new` command.')
-            # TODO: support resuming games from channel data (e.g. if the bot restarts)
             return
+        
+        await make_move(ctx, move, game_session)
+
+    @save_after
+    async def make_move(ctx: interactions.CommandContext | interactions.ComponentContext, game_session: ClientGameSession, move: str) -> None:
+        '''Make a move in the current game.'''
         
         # Check if the game is over before making the move
         if game_session.is_game_over:
@@ -133,13 +132,51 @@ def register_game_commands(client: interactions.Client):
                 await ctx.send(content='Error locking thread!')
             # Remove the game from the list of active game
             game_manager.remove_game(ctx.channel_id)
+    
+    @client.command(**commands['game_commands']['moves'])
+    async def moves(ctx: interactions.CommandContext) -> None:
+        try:
+            game_session = game_manager[ctx.channel_id]
+        except KeyError:
+            await ctx.send(content='No active game found in this channel!')
+            return
+        moves_san = [game_session.board.san(move) for move in game_session.board.legal_moves]
+        moves_san.sort(key=str.casefold)
+        if len(moves_san) > 0:
+            # await ctx.send(content=f'Legal moves: **{"**, **".join(moves_san)}**')
+            buttons = [Button(style=ButtonStyle.SECONDARY, label=move, custom_id=b64encode(dumps({'type': 'move', 'channel_id': str(ctx.channel_id), 'value': move}).encode('utf-8')).decode('utf-8')) for move in moves_san]
+            await ctx.send(content='Legal moves (in alphabetical order):', components=spread_to_rows(*buttons))
+        else:
+            await ctx.send(content='No legal moves! (Stalemate or checkmate)')
+    
+    @client.event(name='on_component')
+    async def on_component(ctx: interactions.ComponentContext) -> None:
+        '''Handle button presses.'''
+        button_context = loads(b64decode(ctx.component.custom_id).decode('utf-8'))
+        # if ctx.component.custom_id == 'new_game':
+        #     await new_game(ctx)
+        # elif ctx.component.custom_id == 'moves':
+        #     await moves(ctx)
+        if button_context['type'] == 'move':
+            channel_id = button_context['channel_id']
+            try:
+                game_session = game_manager[channel_id]
+            except KeyError:
+                await ctx.send(content='No active game found in this channel!')
+                return
+            await make_move(ctx, game_session, button_context['value'])
 
-    @client.command(
-        name='lock',
-        description='Lock the current thread',
-        scope=commands['game_commands']['GUILD_ID'],
-    )
+    @client.command(**commands['game_commands']['lock'])
     async def lock_thread(ctx: interactions.CommandContext) -> None:
         await ctx.send(content='Locking thread...')
         await ctx.channel.lock(reason='User requested lock')
         await ctx.send(content='Thread locked!')
+
+    @client.command(**commands['game_commands']['cleanup'])
+    async def _cleanup(ctx: interactions.CommandContext, message_id: int) -> None:
+        if await cleanup(client, message_id, ctx.channel_id):
+            # If the cleanup was successful, send a confirmation message (ephemeral)
+            await ctx.send(content='Message cleaned up!', ephemeral=True)
+        else:
+            # If the cleanup failed, send an error message (ephemeral)
+            await ctx.send(content='Failed to clean up message!', ephemeral=True)

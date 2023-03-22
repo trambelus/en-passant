@@ -2,9 +2,11 @@
 # Was originally JSON, but it's a Python dict now because subsituting variables is easier.
 # Also might be easier to define options compatible with discord interactions.
 
-from interactions import Option, OptionType, Choice
+from interactions import Option, OptionType, Choice, Permissions
 
 from config import HOME_GUILD_ID, ADMIN_CHANNEL_ID
+
+SCOPE = int(HOME_GUILD_ID)
 
 commands = {
     "admin_commands": {
@@ -45,7 +47,7 @@ commands = {
         "new": {
             "name": "new",
             "description": "Start a new game.",
-            "scope": int(HOME_GUILD_ID),
+            "scope": SCOPE,
             "options": [
                 Option(
                     name='color',
@@ -64,13 +66,57 @@ commands = {
                     #description='Mention a user to play against them, or "bot" to play against AI',
                     type=OptionType.STRING,
                     required=True,
-                ),                    
+                ),
+                Option(
+                    name='time',
+                    description='Time control, e.g. 5+5. Defaults to unlimited time.',
+                    type=OptionType.STRING,
+                    required=False,
+                )
+            ]
+        },
+        "lock": {
+            "name": "lock",
+            "description": "Lock the current game thread",
+            "scope": SCOPE,
+            "default_member_permissions": Permissions.MANAGE_THREADS,
+        },
+        "cleanup": {
+            "name": "cleanup",
+            "description": "Clean up the bot's most recent messages in the current channel.",
+            "scope": SCOPE,
+            "default_member_permissions": Permissions.MANAGE_THREADS,
+            "options": [
+                Option(
+                    name='message_id',
+                    description='The ID of the message to clean up',
+                    type=OptionType.STRING,
+                    required=True
+                )
             ]
         },
         "option": {
             "name": "option",
-            "description": "Set an option, e.g. /option level 5"
-            # TODO: use subcommands for this?
+            "description": "Set an option, e.g. /option level 5",
+            "options": [
+                Option(
+                    name='format',
+                    description='Move format (UCI or SAN)',
+                    type=OptionType.SUB_COMMAND,
+                    options=[
+                        Option(
+                            name='format',
+                            description='Move format (UCI or SAN)',
+                            type=OptionType.STRING,
+                            required=True,
+                            choices=[
+                                Choice(name='UCI', value='uci'),
+                                Choice(name='SAN', value='san')
+                            ]
+                        )
+                    ]
+                ),
+            ]
         },
         "list_options": {
             "name": "list_options",
@@ -79,7 +125,7 @@ commands = {
         "move": {
             "name": "move",
             "description": "Make a move, e.g. e4 or e2e4",
-            "scope": int(HOME_GUILD_ID),
+            "scope": SCOPE,
             "options": [
                 Option(
                     name='move',
@@ -91,7 +137,8 @@ commands = {
         },
         "moves": {
             "name": "moves",
-            "description": "Show a (TBD: clickable) list of available legal moves."
+            "description": "Show a list of available legal moves.",
+            "scope": SCOPE,
         },
         "undo": {
             "name": "undo",
