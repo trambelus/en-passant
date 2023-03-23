@@ -1,4 +1,8 @@
+# Defines the ClientOptions class, which contains options for the client.
+# No surprises here, just a bunch of attributes.
+
 from typing import Any
+from attrs import define
 import logging
 
 from chess import BLACK, WHITE, Color
@@ -7,51 +11,53 @@ from interactions import Snowflake
 
 logger = logging.getLogger(__name__)
 
+# TODO: handle serializable classes via a metaclass or mixin
+
+@define
 class ClientOptions:
     '''
     Contains options for the client. Serializable via to_dict() and from_dict().
+    :param Snowflake author_id: the Discord ID of the author
+    :param Snowflake opponent_id: the Discord ID of the opponent (None if the opponent is the engine)
+    :param bool author_is_white: whether the author is playing white (True) or black (False)
+    :param Snowflake channel_id: the Discord ID of the channel, thread, or DM in which the game is being played (must be unique among active games)
+    :param str author_nick: the nickname of the author (used for display purposes)
+    :param str opponent_nick: the nickname of the opponent (used for display purposes)
+    :param int players: 1 if the game is between one player and the engine, 2 if it is between two players
+    :param str notation: the notation to use for moves (options: 'san' (default), 'lan', 'uci')
+    :param str ping: whether to ping each player when it is their turn (options: 'none', 'author', 'opponent', 'both')
+    :param str name: the name of the game (used for the title of the thread)
+    :param str engine: the name of the engine to use (options: 'maia', 'stockfish', maybe others in the future)
+    :param dict engine_options: a dictionary of engine-specific options to pass to the engine (see EngineSession documentation for details)
+    :param str time_control: time control to use (e.g. 5+5)
+    :param bool private: whether the game is private
     '''
-    # TODO: handle serializable classes via a metaclass or mixin
-    def __init__(self, author_id: Snowflake | str = None, opponent_id: Snowflake | str = None, author_is_white: bool = None, channel_id: Snowflake | str = None,
-                 author_nick: str = None, opponent_nick: str = None, players: int = 1, notation: str = 'san',
-                 ping: str = 'none', name: str = 'Game', engine: str = None, engine_options: dict[str, str] = {}, clock: bool = None, private: bool = False):
-        '''
-        Initialize a new ClientOptions object.
-        :param Snowflake author_id: the Discord ID of the author
-        :param Snowflake opponent_id: the Discord ID of the opponent (None if the opponent is the engine)
-        :param bool author_is_white: whether the author is playing white (True) or black (False)
-        :param Snowflake channel_id: the Discord ID of the channel, thread, or DM in which the game is being played (must be unique among active games)
-        :param str author_nick: the nickname of the author (used for display purposes)
-        :param str opponent_nick: the nickname of the opponent (used for display purposes)
-        :param int players: 1 if the game is between one player and the engine, 2 if it is between two players
-        :param str notation: the notation to use for moves (options: 'san' (default), 'lan', 'uci')
-        :param str ping: whether to ping each player when it is their turn (options: 'none', 'author', 'opponent', 'both')
-        :param str name: the name of the game (used for the title of the thread)
-        :param str engine: the name of the engine to use (options: 'maia', 'stockfish', maybe others in the future)
-        :param dict engine_options: a dictionary of engine-specific options to pass to the engine (see EngineSession documentation for details)
-        :param bool clock: whether to use a clock
-        :param bool private: whether the game is private
-        '''
-        if author_id is None:
+
+    author_id: Snowflake | str
+    opponent_id: Snowflake | str | None
+    author_is_white: bool
+    channel_id: Snowflake | str
+    author_nick: str
+    opponent_nick: str | None
+    players: int = 1
+    notation: str = 'san'
+    ping: str = 'none'
+    name: str = 'Game'
+    engine: str | None = None
+    engine_options: dict[str, str] = {}
+    time_control: str | None = None
+    private: bool = False
+
+    def __attrs_post_init__(self):
+        if self.author_id is None:
             raise ValueError('missing required argument: author_id')
-        if opponent_id is None and players == 2:
+        if self.opponent_id is None and self.players == 2:
             raise ValueError('missing required argument for 2-player game: opponent_id')
-        if channel_id is None:
+        if self.channel_id is None:
             raise ValueError('missing required argument: channel_id')
-        self.author_id: Snowflake = Snowflake(author_id)
-        self.opponent_id: Snowflake = Snowflake(opponent_id)
-        self.author_nick: str = author_nick
-        self.opponent_nick: str = opponent_nick
-        self.author_is_white: bool = author_is_white
-        self.players: int = players
-        self.notation: str = notation
-        self.ping: str = ping
-        self.channel_id: Snowflake = Snowflake(channel_id)
-        self.name: str = name
-        self.engine: str = engine
-        self.engine_options: dict[str, str] = engine_options
-        self.clock: bool = clock
-        self.private: bool = private
+        self.author_id = Snowflake(self.author_id)
+        self.opponent_id = Snowflake(self.opponent_id)
+        self.channel_id = Snowflake(self.channel_id)
     
     # Properties
     @property
@@ -105,7 +111,7 @@ class ClientOptions:
             'name': self.name,
             'engine': self.engine,
             'engine_options': self.engine_options,
-            'clock': self.clock,
+            'clock': self.time_control,
             'private': self.private
         }
 
