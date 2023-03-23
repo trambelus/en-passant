@@ -1,63 +1,23 @@
 # Implements admin-only slash commands.
 
-import json
 import logging
-from functools import wraps
+from asyncio import sleep
 from pprint import pformat
 
 import interactions
+from interactions.api.models import Channel
+from interactions.utils import autodefer, get
 
 from config import EMOJI_CACHE_FILE, HOME_GUILD_ID
 
 from .command_definitions import commands
+from .command_utils import refresh_emoji_names, admin_channel_only
 
 logger = logging.getLogger(__name__)
 
-def admin_channel_only(func):
-    '''Decorator to check if a command is used in the admin channel'''
-    @wraps(func)
-    async def wrapper(*args, **kwargs):
-        # Get the context from the arguments
-        ctx = args[0]
-        # Check for type safety, and if it's not there, log an error
-        if not isinstance(ctx, interactions.CommandContext):
-            logger.error(f'admin_channel_only decorator called with invalid context: {pformat(ctx)}')
-            return
-        # Check if the command was used in the admin channel
-        if ctx.channel_id == int(commands['admin_commands']['CHANNEL_ID']):
-            # If so, call the function
-            return await func(*args, **kwargs)
-        else:
-            # If not, send an error message
-            await ctx.send(content='Sorry, this command can only be used in the admin channel!')
-
-    logger.debug(f'Created admin_channel_only decorator for {func.__name__}')
-    return wrapper
-
-# Defined here so it can be imported by other modules
-async def refresh_emoji_names(client: interactions.Client) -> dict[str, str]:
-    '''Get a list of all the emoji names from the server and use them to populate emoji_map'''
-    # Get the list of emoji from the server
-    emoji_map = {}
-    try:
-        emoji_list = await client._http.get_all_emoji(int(HOME_GUILD_ID))
-    except interactions.HTTPException as e:
-        logger.error(f'Failed to get emoji list from Discord API: {e} {e.response}')
-        return False
-    # Iterate over the emoji
-    for emoji in emoji_list:
-        # Get the emoji name
-        emoji_name = emoji['name']
-        # Add the emoji name to the map
-        emoji_map[emoji_name] = f'<:{emoji_name}:{emoji["id"]}>'
-        logger.debug(f'Added emoji {emoji_name} to map with id {emoji["id"]}')
-    # Save the emoji map to the JSON file
-    with open(EMOJI_CACHE_FILE, 'w') as f:
-        json.dump(emoji_map, f, indent=4)
-        logger.debug('Saved emoji map to file')
-    return emoji_map
-
 def register_admin_commands(client: interactions.Client):
+
+    logger.info('Registering admin commands')
 
     @client.command(
         name=commands['admin_commands']['refresh_emoji_cache']['name'],
@@ -90,3 +50,33 @@ def register_admin_commands(client: interactions.Client):
         result = pformat(eval(code))
         logger.warning(f'Evaluated code: {code} -> {result}')
         await ctx.send(content=f'```{result}```')
+    
+    @client.command(
+        name='test-contextless',
+        description='Attempt to send a message without a context after a delay of 5 seconds',
+        scope=commands['admin_commands']['GUILD_ID']
+    )
+    @admin_channel_only
+    async def test_contextless(ctx: interactions.CommandContext) -> None:
+        # Send an acknowledgement message to the context so it doesn't show as failed
+        await ctx.send(content='Sending message in 5 seconds...')
+        # Get the channel from the context, and then get a new channel object from the ID with no reference to the context
+        channel_id: int = int(ctx.channel.id)
+        channel: Channel = await get(client, Channel, object_id=channel_id)
+        # Wait 5 seconds
+        await sleep(5)
+        # Send a message in the channel
+        await channel.send(content='This is a test message sent without a context!')
+    
+    @client.command(
+        name='test-autodefer',
+        description='Attempt to send an auto-deferred message after a delay of 5 seconds',
+        scope=commands['admin_commands']['GUILD_ID']
+    )
+    @autodefer()
+    @admin_channel_only
+    async def test_autodefer(ctx: interactions.CommandContext) -> None:
+        # Wait 5 seconds
+        await sleep(5)
+        # Send a message in the channel
+        await ctx.send(content='This is a test message sent with autodefer!')

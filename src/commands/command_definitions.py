@@ -160,5 +160,27 @@ commands = {
             "name": "decline",
             "description": "Decline a draw or undo request."
         }
+    },
+    "user_commands": {
+        "GUILD_ID": int(HOME_GUILD_ID),
+        "CHANNEL_ID": None,
+        "help": {
+            "name": "help",
+            "description": "Show help for a command, e.g. /help new",
+            "scope": SCOPE,
+            "options": [
+                Option(
+                    name='topic',
+                    description='The topic to show help for',
+                    type=OptionType.STRING,
+                    required=False
+                )
+            ]
+        },
+        "ping": {
+            "name": "ping",
+            "description": "Ping the bot and get the latency.",
+            "scope": SCOPE,
+        },
     }
 }

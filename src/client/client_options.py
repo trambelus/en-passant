@@ -111,7 +111,7 @@ class ClientOptions:
             'name': self.name,
             'engine': self.engine,
             'engine_options': self.engine_options,
-            'clock': self.time_control,
+            'time_control': self.time_control,
             'private': self.private
         }
 
