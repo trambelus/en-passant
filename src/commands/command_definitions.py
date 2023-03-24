@@ -30,7 +30,7 @@ commands = {
         },
         "reupload_emoji": {
             "name": "reupload_emoji",
-            "description": "Reupload all emojis to the home guild (WARNING: may be 429 rate-limited to an hour cooldown if run more than once)."
+            "description": "Reupload all emoji to the home guild (WARNING: may be 429ed one hour if run more than once)."
         },
         "refresh_emoji_cache": {
             "name": "refresh_emoji_cache",
@@ -63,29 +63,101 @@ commands = {
             "scope": SCOPE,
             "options": [
                 Option(
-                    name='color',
-                    description='The color to play as',
-                    type=OptionType.STRING,
-                    required=True,
-                    choices=[
-                        Choice(name='White', value='white'),
-                        Choice(name='Black', value='black'),
-                        Choice(name='Random', value='random')
+                    name='pvp',
+                    description='Play against another player',
+                    type=OptionType.SUB_COMMAND,
+                    options=[
+                        Option(
+                            name='vs',
+                            description='Mention a user to play against them',
+                            type=OptionType.USER,
+                            required=True,
+                        ),
+                        Option(
+                            name='color',
+                            description='The color to play as (defaults to random)',
+                            type=OptionType.STRING,
+                            required=False,
+                            choices=[
+                                Choice(name='White', value='white'),
+                                Choice(name='Black', value='black'),
+                                Choice(name='Random', value='random')
+                            ]
+                        ),
+                        Option(
+                            name='time',
+                            description='Time control, e.g. 5+5. Defaults to unlimited time.',
+                            type=OptionType.STRING,
+                            required=False,
+                        ),
+                        Option(
+                            name='rated',
+                            description='Whether the game should be rated (defaults to true)',
+                            type=OptionType.BOOLEAN,
+                            required=False,
+                        ),
                     ]
                 ),
                 Option(
-                    name='vs',
-                    description='Mention a user to play against them',
-                    #description='Mention a user to play against them, or "bot" to play against AI',
-                    type=OptionType.STRING,
-                    required=True,
+                    name='pvai',
+                    description='Play against the AI',
+                    type=OptionType.SUB_COMMAND_GROUP,
+                    options=[
+                        Option(
+                            name='elo',
+                            description='Play against the AI at a specific Elo rating',
+                            type=OptionType.SUB_COMMAND,
+                            options=[
+                                Option(
+                                    name='level',
+                                    description='The rating to play against (or "random" to play against a random level)',
+                                    type=OptionType.STRING,
+                                    required=True,
+                                    choices=[
+                                        Choice(name='1100', value='1100'),
+                                        Choice(name='1200', value='1200'),
+                                        Choice(name='1300', value='1300'),
+                                        Choice(name='1400', value='1400'),
+                                        Choice(name='1500', value='1500'),
+                                        Choice(name='1600', value='1600'),
+                                        Choice(name='1700', value='1700'),
+                                        Choice(name='1800', value='1800'),
+                                        Choice(name='1900', value='1900'),
+                                        Choice(name='random', value='random')
+                                    ]
+                                ),
+                                Option(
+                                    name='color',
+                                    description='The color to play as (defaults to random)',
+                                    type=OptionType.STRING,
+                                    required=False,
+                                    choices=[
+                                        Choice(name='White', value='white'),
+                                        Choice(name='Black', value='black'),
+                                        Choice(name='Random', value='random')
+                                    ]
+                                ),
+                                Option(
+                                    name='time',
+                                    description='Time control, e.g. 5+5. Defaults to unlimited time.',
+                                    type=OptionType.STRING,
+                                    required=False,
+                                ),
+                                Option(
+                                    name='rated',
+                                    description='Whether the game should be rated (defaults to true)',
+                                    type=OptionType.BOOLEAN,
+                                    required=False,
+                                ),
+                            ]
+                        ),
+                        Option(
+                            name='placement',
+                            description='Play three placement games against the AI to set your initial Elo rating',
+                            type=OptionType.SUB_COMMAND,
+                        ),
+                    ]
                 ),
-                Option(
-                    name='time',
-                    description='Time control, e.g. 5+5. Defaults to unlimited time.',
-                    type=OptionType.STRING,
-                    required=False,
-                )
             ]
         },
         "lock": {
@@ -110,7 +182,7 @@ commands = {
         },
         "option": {
             "name": "option",
-            "description": "Set an option, e.g. /option level 5",
+            "description": "Set an option, e.g. /option format san",
             "options": [
                 Option(
                     name='format',

@@ -21,7 +21,7 @@ def register_admin_commands(client: interactions.Client):
 
     admin_commands = commands['admin_commands']
 
-    @client.command(**admin_commands['refresh_emoji_names'])
+    @client.command(**admin_commands['refresh_emoji_cache'])
     @admin_channel_only
     async def _refresh_emoji_names(client: interactions.Client):
         return refresh_emoji_names(client)

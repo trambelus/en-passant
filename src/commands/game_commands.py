@@ -22,70 +22,101 @@ def register_game_commands(client: interactions.Client):
 
     logger.info("Registering game commands")
 
+    async def new_game_pvp(ctx: interactions.CommandContext, vs: interactions.User, color: str = 'random', ranked: bool = True, time_control: str = None) -> interactions.Channel:
+        author_nick = ctx.author.nick if ctx.author.nick else ctx.author.user.username
+        # Determine the opponent
+        if vs is None:
+            await ctx.send(content='Invalid opponent! Please mention a user.')
+            return
+        else:
+            vs_nick = vs.nick if vs.nick else vs.user.username
+
+        # Check if the opponent is a bot (not allowed, that's what /new pvai is for)
+        if vs.bot:
+            await ctx.send(content='Invalid opponent! You can\'t play a bot in a PvP game.')
+            return
+
+        # Determine the color
+        if color == 'random':
+            color = random.choice(['white', 'black'])
+
+        # Create a new Discord thread in the current channel to handle the game
+        name = f'{author_nick} vs {vs_nick}'
+        game_channel = await ctx.channel.create_thread(name=name)
+
+        # Define client options
+        client_options_dict = {
+            'author_id': ctx.author.id,
+            'opponent_id': vs.id,
+            'author_is_white': color == 'white',
+            'author_nick': author_nick,
+            'opponent_nick': vs_nick,
+            'players': 2,
+            'notation': 'san',
+            'ping': 'none',
+            'channel_id': game_channel.id,
+            'name': name,
+        }
+        client_options = ClientOptions(**client_options_dict)
+        # TODO: load unspecified client options as user options from database
+
+        # Create a new GameSession
+        game_session = ClientGameSession(client_options=client_options)
+
+        # Register the session with the game manager
+        game_manager.add_game(game_channel.id, game_session)
+
+        # Send response in the current channel
+        await ctx.send(content=f'New game started in {game_channel.mention}!')
+
+        # Send the board in the thread
+        msg_content = game_session.new_game()
+        await game_channel.send(content=msg_content)
+
+        # TODO: modal to specify AI game or human game, and if human game, who to play against, and what color to play as, and whether to ping them
+        # Modals are shiny and new, and current bots probably don't use them, so it would be a nice touch.
+        return game_channel
+
+    async def new_game_pvai(ctx: interactions.CommandContext, level: str, color: str = 'random', ranked: bool = True, time_control: str = None) -> interactions.Channel:
+        await ctx.send(content='Not implemented yet! Please use the `/new pvp` command to play against a human opponent.')
+        return None
+
     # Decorators take care of registering the commands with the interactions library.
     @client.command(**commands['game_commands']['new'])
     @save_after
-    async def new_game(ctx: interactions.CommandContext, color: str, vs: str) -> None:        
+    async def new_game(ctx: interactions.CommandContext, sub_command: str, vs: interactions.Member = None, level: str = 'random') -> None:        
         '''Create a new game.'''
         try:
-            author_nick = ctx.author.nick if ctx.author.nick else ctx.author.user.username
-            # Determine the opponent
-            # if vs != 'bot' and not vs.startswith('<@') and not vs.endswith('>'):
-            if not vs.startswith('<@') and not vs.endswith('>'):
-                # await ctx.send(content='Invalid opponent! Please mention a user or specify "bot".')
-                await ctx.send(content='Invalid opponent! Please mention a user.')
+            # Check if this is a thread
+            if ctx.channel.type in [interactions.ChannelType.PUBLIC_THREAD, interactions.ChannelType.PRIVATE_THREAD]:
+                await ctx.send(content='You cannot create a new game in a thread! Try creating a new game in the channel where this thread was created.')
                 return
-            if vs == 'bot':
-                vs_nick = 'En Passant Bot'
-                vs_member = {'id': None, 'nick': vs_nick, 'user': {'username': vs_nick}}
+            
+            # Check if this is a DM
+            if ctx.channel.type == interactions.ChannelType.DM:
+                await ctx.send(content='You cannot create a new game in a DM! Try creating a new game in a server.')
+                return
+
+            # Is this a PvP game?
+            if sub_command == 'pvp':
+                game_channel = await new_game_pvp(ctx, vs, level)
+                return
+            
+            # Is this a PvAI game?
+            elif sub_command == 'pvai':
+                game_channel = await new_game_pvai(ctx, level)
+                return
+            
             else:
-                vs_id = vs[2:-1]
-                logger.debug(f'Fetching nickname for user {vs_id}')
-                vs_member = await get(client, interactions.Member, parent_id=ctx.guild_id, object_id=vs_id)
-                vs_nick = vs_member.nick if vs_member.nick else vs_member.user.username
-            if color == 'random':
-                color = random.choice(['white', 'black'])
-
-            # Create a new Discord thread in the current channel to handle the game
-            name = f'{author_nick} vs {vs_nick}'
-            thread = await ctx.channel.create_thread(name=name)
-
-            # Define client options
-            client_options_dict = {
-                'author_id': ctx.author.id,
-                'opponent_id': vs_member.id,
-                'author_is_white': color == 'white',
-                'author_nick': author_nick,
-                'opponent_nick': vs_nick,
-                'players': 1 if vs == 'bot' else 2,
-                'notation': 'san',
-                'ping': 'none',
-                'channel_id': thread.id,
-                'name': name,
-            }
-            client_options = ClientOptions(**client_options_dict)
-            # TODO: load unspecified client options as user options from database
-
-            # Create a new GameSession
-            game_session = ClientGameSession(client_options=client_options)
-
-            # Register the session with the game manager
-            game_manager.add_game(thread.id, game_session)
-
-            # Send response in the current channel
-            await ctx.send(content=f'New game started in {thread.mention}!')
-
-            # Send the board in the thread
-            msg_content = game_session.new_game()
-            await thread.send(content=msg_content)
-
-            # TODO: modal to specify AI game or human game, and if human game, who to play against, and what color to play as, and whether to ping them
-            # Modals are shiny and new, and current bots probably don't use them, so it would be a nice touch.
+                await ctx.send(content='Invalid subcommand! Not sure what you\'re trying to do.')
+                logger.error(f'Invalid subcommand {sub_command} for /new command.')
+                return
+            
         except Exception as e:
             logger.exception(e)
             await ctx.send(content='Error creating new game!')
-            if thread:
-                await thread.delete()
+            if game_channel:
+                await game_channel.delete()
     
     @client.command(**commands['game_commands']['move'])
     async def move_command(ctx: interactions.CommandContext, move: str) -> None:
