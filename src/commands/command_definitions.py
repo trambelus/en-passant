@@ -39,6 +39,19 @@ commands = {
         "shutdown": {
             "name": "shutdown",
             "description": "Shutdown the bot."
+        },
+        "eval": {
+            "name": "eval",
+            "description": "Evaluate a Python expression. Please don't use this command unless you know what you're doing.",
+            "default_member_permissions": Permissions.ADMINISTRATOR,
+            "options": [
+                Option(
+                    name='expression',
+                    description='The Python expression to evaluate',
+                    type=OptionType.STRING,
+                    required=True
+                )
+            ]
         }
     },
     "game_commands": {

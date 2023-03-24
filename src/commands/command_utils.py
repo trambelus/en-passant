@@ -57,10 +57,15 @@ def admin_channel_only(func):
     return wrapper
 
 def cooldown(seconds: int):
-    '''Decorator to add a cooldown to a command'''
+    '''Decorator to add a cooldown to a command, in seconds.
+    The cooldown is per user and per channel, and if set to 0,
+    this decorator will only prevent the command from being called more than once at a time
+    by the same user in the same channel.'''
     def decorator(func):
         # Enforce cooldowns with a dict keyed by user ID and channel ID, with the value being the time the cooldown expires
         cooldowns: dict[tuple[str, str], datetime] = {}
+        # Use a second dict to ensure that the wrapped function isn't called twice at the same time
+        cooldown_locks: dict[tuple[str, str], bool] = {}
         @wraps(func)
         async def wrapper(*args, **kwargs):
             # Get the context from the arguments
@@ -72,21 +77,27 @@ def cooldown(seconds: int):
             # Get the user ID and channel ID
             user_id = str(ctx.author.id)
             channel_id = str(ctx.channel_id)
-            # Check if the user is in cooldown
-            if (user_id, channel_id) in cooldowns:
-                # If so, check if the cooldown has expired
-                if cooldowns[(user_id, channel_id)] > datetime.now():
-                    # If not, send an error message
-                    await ctx.send(content=f'Sorry, this command is on cooldown for another {int((cooldowns[(user_id, channel_id)] - datetime.now()).total_seconds())} seconds!', ephemeral=True)
-                    return
-                else:
-                    # If so, delete the cooldown
-                    del cooldowns[(user_id, channel_id)]
+            # Check if the user is on cooldown
+            if cooldowns.get((user_id, channel_id), datetime.now()) > datetime.now():
+                # If so, send an error message
+                await ctx.send(content=f'Sorry, this command is on cooldown for {cooldowns[(user_id, channel_id)] - datetime.now()} more seconds!', ephemeral=True)
+                return
+            # Check if the user is already locked
+            if cooldown_locks.get((user_id, channel_id), False):
+                # If so, send an error message
+                await ctx.send(content='Sorry, this command is already running!', ephemeral=True)
+                return
+            # If not, lock the user
+            cooldown_locks[(user_id, channel_id)] = True
             # Call the function
-            result = await func(*args, **kwargs)
-            # Add the cooldown
-            cooldowns[(user_id, channel_id)] = datetime.now() + timedelta(seconds=seconds)
-            return result
+            try:
+                result = await func(*args, **kwargs)
+                return result
+            finally:
+                # Unlock the user
+                cooldown_locks[(user_id, channel_id)] = False
+                # Set the cooldown
+                cooldowns[(user_id, channel_id)] = datetime.now() + timedelta(seconds=seconds)
 
         logger.debug(f'Created cooldown decorator for {func.__name__}, with cooldown of {seconds} seconds')
         return wrapper

@@ -19,37 +19,32 @@ def register_admin_commands(client: interactions.Client):
 
     logger.info('Registering admin commands')
 
-    @client.command(
-        name=commands['admin_commands']['refresh_emoji_cache']['name'],
-        description=commands['admin_commands']['refresh_emoji_cache']['description'],
-        scope=commands['admin_commands']['GUILD_ID']
-    )
+    admin_commands = commands['admin_commands']
+
+    @client.command(**admin_commands['refresh_emoji_names'])
     @admin_channel_only
     async def _refresh_emoji_names(client: interactions.Client):
         return refresh_emoji_names(client)
     
-    @client.command(
-        name='eval',
-        description='Just eval—please use responsibly, and note that the bot is not running as admin.',
-        scope=commands['admin_commands']['GUILD_ID'],
-        options=[
-            interactions.Option(
-                name='code',
-                description='The code to evaluate',
-                type=interactions.OptionType.STRING,
-                required=True
-            )
-        ]
-    )
-    async def __eval(ctx: interactions.CommandContext, code: str) -> None:
-        return await _eval(ctx, code)
-    
+    @client.command(**admin_commands['eval'])
+    @autodefer()
     @admin_channel_only
-    async def _eval(ctx: interactions.CommandContext, code: str) -> None:
+    async def __eval(ctx: interactions.CommandContext, expression: str) -> None:
+        # Disabled for now. This is a security risk, and I don't want to deal with it. Plus, it's not like I use it anyway.
+        # return await _eval(ctx, expression)
+        await ctx.send(content='**WARNING**: You do not have permission to use this command. This action has been logged.')
+        # Does not log anything, of course, but it's a sort of fun scare tactic.
+    
+    async def _eval(ctx: interactions.CommandContext, expression: str) -> None:
         '''Evaluate the given code'''
-        result = pformat(eval(code))
-        logger.warning(f'Evaluated code: {code} -> {result}')
-        await ctx.send(content=f'```{result}```')
+        try:
+            result = pformat(await eval(expression))
+            logger.warning(f'Evaluated code: {expression} -> {result}')
+            await ctx.send(content=f'```{result}```')
+        except Exception as e:
+            logger.error(f'Exception while evaluating code: {e}')
+            logger.exception(e)
+            await ctx.send(content=f'```Exception: {e}```')
     
     @client.command(
         name='test-contextless',
