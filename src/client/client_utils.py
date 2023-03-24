@@ -11,10 +11,131 @@ from interactions.api.models.channel import Channel
 from interactions.api.models.message import Message, MessageType
 from interactions.api.models.user import User
 from interactions.utils.get import get
+from chess import Piece, Board
 
 from config import BOT_ID
 
 logger = logging.getLogger(__name__)
+
+# Map pieces to emoji names
+pieces_map = {
+    'P': 'pw',
+    'R': 'rw',
+    'N': 'nw',
+    'B': 'bw',
+    'Q': 'qw',
+    'K': 'kw',
+    'p': 'pb',
+    'r': 'rb',
+    'n': 'nb',
+    'b': 'bb',
+    'q': 'qb',
+    'k': 'kb',
+    '.': '__'
+}
+
+# Map emoji names to emoji references, e.g. 'pw' -> '<:pw:1084899251366133802>'
+# Must be initialized after the bot is logged in, since the emoji IDs change whenever the server's emojis are updated
+# TODO: just use a single map for both pieces_map and emoji_map, this is silly
+emoji_map = {}
+
+def populate_emoji_map(new_map: dict[str, str]):
+    '''Populate emoji_map with the current emoji references.'''
+    for piece, emoji in new_map.items():
+        emoji_map[piece] = emoji
+    logger.debug(f'Populated emoji_map in client_utils.py: {emoji_map}')
+
+def fen_to_emoji(fen: str) -> str:
+    '''Given a FEN string, return a string that can be used in a Discord message'''
+    board = Board(fen)
+    return board_to_emoji(board)
+
+def board_to_emoji(board: Board, moves_list: list[str] = None) -> str:
+    '''Given a board from chess.py, return a string that can be used in a Discord message,
+    e.g. given a board with the starting position, return:
+    [list of moves, blank in this case]
+    :rbl::nbd::bbl::qbd::kbl::bbd::nbl::rbd: `8`
+    :pbd::pbl::pbd::pbl::pbd::pbl::pbd::pbl: `7`
+    :__l::__d::__l::__d::__l::__d::__l::__d: `6`
+    :__d::__l::__d::__l::__d::__l::__d::__l: `5`
+    :__l::__d::__l::__d::__l::__d::__l::__d: `4`
+    :__d::__l::__d::__l::__d::__l::__d::__l: `3`
+    :pwl::pwd::pwl::pwd::pwl::pwd::pwl::pwd: `2`
+    :rwd::nwl::bwd::qwl::kwd::bwl::nwd::rwl: `1`
+    ` a  b  c  d  e  f  g  h  `
+    Not quite like that, each emoji will be a fully-qualified reference, e.g. <:pwl:1084899251366133802>,
+    but that would be too long for this comment.
+    '''
+    # If emoji_map is empty, error out
+    if len(emoji_map) == 0:
+        raise ValueError('emoji_map is empty, please call populate_emoji_map(new_map) first')
+    # If moves_list is None, try to get the moves from the board
+    if moves_list is None:
+        moves_list = [move.uci() for move in board.move_stack]
+    # Get the last move, if any
+    last_move = board.peek() if len(board.move_stack) > 0 else None
+    # Get a string representation of the moves list
+    if len(moves_list) == 0:
+        moves_str = ''
+    else:
+        # Add move numbers every other move, and with the last move wrapped with '**'
+        moves_str = ''.join([(f'  {i // 2 + 1}. ' if i % 2 == 0 else ' ') + f'{"**" if i == len(moves_list) - 1 else ""}{move}' for i, move in enumerate(moves_list)]) + '**'
+    # Get a representation of the board as a 2D array
+    board_str = str(board)
+    board_arr = [rank.split(' ') for rank in board_str.split('\n')]
+    # Isolate the relevant squares from the last move, if any, for highlighting
+    (fr, ff, tr, tf) = (7 - last_move.from_square // 8, last_move.from_square % 8, 7 - last_move.to_square // 8, last_move.to_square % 8) if last_move else (None, None, None, None)
+    # Convert to a 2D array of emoji names
+    board_arr = [[f'{pieces_map[board_arr[r][f]]}{"h" if ((r == fr and f == ff) or (r == tr and f == tf)) else ("l" if (r + f) % 2 == 0 else "d")}' for f in range(len(board_arr[r]))] for r in range(len(board_arr))]
+    # Convert the board array into a list of strings, each string representing a rank
+    ranks_arr = [' ' + ''.join([emoji_map[p] for p in board_arr[r]]) + f' `{8-r}`' for r in range(len(board_arr))]
+    # Add the move list as an initial string
+    ranks_arr.insert(0, moves_str)
+    # Add the file labels as a final string
+    ranks_arr.append('` a  b  c  d  e  f  g  h  `')
+    # Join the lines into a single string and return it
+    return '\n'.join(ranks_arr)
+
+def emoji_to_fen(emoji: str) -> str:
+    '''Given a string that can be used in a Discord message, return a FEN string'''
+    # Get the board from the emoji
+    board = emoji_to_board(emoji)
+    # Return the FEN string
+    return board.fen()
+
+def emoji_to_board(message_str: str) -> Board:
+    '''Given a string that can be used in a Discord message, return a chess.Board'''
+    # Create a new empty board
+    board = Board(fen=None)
+    # Discard the first line (the move list) if it exists (starts with '1. ')
+    if message_str.split('\n')[0].startswith('1. '):
+        message_str = '\n'.join(message_str.split('\n')[1:])
+    # Discard the last line (the file labels) if it exists (starts with '` a ')
+    if message_str.split('\n')[-1].startswith('` a ') or message_str.split('\n')[-1].strip().startswith('a'):
+        message_str = '\n'.join(message_str.split('\n')[:-1])
+    # Discard the file labels at the end of each line if they exist
+    message_str = '\n'.join([line.strip().split(' ')[0] for line in message_str.split('\n')])
+    # Get the ranks from the emoji
+    ranks = message_str.split('\n')
+    if len(ranks) != 8:
+        print(f'Invalid number of ranks: {len(ranks)}')
+        print(f'Ranks: {ranks}')
+        raise ValueError('Invalid number of ranks')
+    # Iterate over the ranks
+    for r in range(len(ranks)):
+        # Get the squares from the rank
+        squares = ranks[r].split('::')
+        # Iterate over the squares
+        for f in range(len(squares)):
+            # Get the piece from the square
+            emoji = squares[f].replace(':', '')
+            piece = emoji[0].upper() if emoji[1] == 'w' else emoji[0]
+            # If the square is not empty, add the piece to the board
+            if piece != '_':
+                board.set_piece_at((7 - r) * 8 + f, Piece.from_symbol(piece))
+    # Return the board
+    return board
+
 
 def to_discord_snowflake(id: str | int) -> Snowflake:
     '''

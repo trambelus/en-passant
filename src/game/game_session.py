@@ -3,17 +3,45 @@
 import logging
 import re
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 import chess
 import chess.variant
+from attrs import define
 
 from config import DEFAULT_GAME_OPTIONS
+from .player import Player
 
 logger = logging.getLogger(__name__)
 
 def generate_session_id():
     return str(uuid.uuid4())[8] # doesn't need to be secure, just unique
+
+OfferType = Literal['undo', 'draw']
+OfferStatus = Literal['pending', 'accepted', 'declined']
+
+@define
+class Offer:
+    '''Represents an offer to either undo a move or draw the game. Only one offer of either type can be active at a time.'''
+    offer_type: OfferType
+    author: Player
+    status: OfferStatus = 'pending'
+
+GameStatus = Literal['in_progress', 'resigned', 'checkmate', 'stalemate', 'draw']
+@define
+class GameStatus:
+    '''
+    Represents the status of a game.
+    This is necessary because tracking the board state alone wouldn't cover cases like resignation or draw by agreement, where the game is over but the board state is not.
+    :param GameStatus outcome: The outcome of the game, if over, or 'in_progress' if the game is still in progress.
+    :param Player winner: The ID of the player who won the game, if any.
+    :param Player loser: The ID of the player who lost the game, if any.
+    :param advantage float: Value representing white's advantage in centipawns, as calculated by the engine. Positive values indicate white is winning, negative values indicate black is winning, and zero indicates an even game.
+    '''
+    outcome: GameStatus
+    winner: Player | None = None
+    loser: Player | None = None
+    advantage: float | None = None
 
 class GameSession:
     '''
@@ -41,7 +69,8 @@ class GameSession:
         then apply the moves with apply_moves(moves).
         '''
         self.session_id: str = str(session_id) or generate_session_id()
-
+        self.status: GameStatus = GameStatus(outcome='in_progress')
+        self.current_offer: Offer | None = None
         self.game_options: dict[str, Any] = game_options
         self.variant: str = game_options.get('variant', 'standard') # TODO: implement variants
         # Handle chess960 start position
@@ -226,7 +255,7 @@ class GameSession:
     @property
     def is_game_over(self):
         '''Returns True if the game is over, False otherwise.'''
-        return self.board.is_game_over()
+        return self.board.is_game_over() or self.status.outcome != 'in_progress'
     
     @property
     def is_check(self) -> bool:

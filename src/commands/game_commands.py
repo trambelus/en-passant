@@ -4,6 +4,7 @@ import logging
 import random
 from base64 import b64decode, b64encode
 from json import dumps, loads
+from chess import Color
 
 import interactions
 from interactions import Button, ButtonStyle
@@ -12,6 +13,7 @@ from interactions.utils.utils import spread_to_rows
 
 from client import (ClientGameSession, ClientOptions, cleanup, game_manager,
                     save_after)
+from game import Player
 
 from .command_definitions import commands
 
@@ -46,11 +48,8 @@ def register_game_commands(client: interactions.Client):
 
         # Define client options
         client_options_dict = {
-            'author_id': ctx.author.id,
-            'opponent_id': vs.id,
-            'author_is_white': color == 'white',
-            'author_nick': author_nick,
-            'opponent_nick': vs_nick,
+            'author': Player(ctx.author.id, author_nick, Color.WHITE if color == 'white' else Color.BLACK),
+            'opponent': Player(vs.id, vs_nick, Color.BLACK if color == 'white' else Color.WHITE),
             'players': 2,
             'notation': 'san',
             'ping': 'none',

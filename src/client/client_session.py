@@ -1,18 +1,25 @@
 import asyncio
 import json
 import logging
-from typing import List, Dict, Any
+from typing import Any, Literal
 
-from chess import Board, Piece, Move, InvalidMoveError, IllegalMoveError, AmbiguousMoveError, WHITE, BLACK
-import websockets
 import interactions
+import websockets
+from attrs import define
+from chess import (BLACK, WHITE, AmbiguousMoveError, Board, IllegalMoveError,
+                   InvalidMoveError)
 from interactions import Snowflake
 
-from config import ENGINE_HOST, ENGINE_PORT, ENGINE_PW, ENGINE_USER, DEFAULT_GAME_OPTIONS
+from config import (DEFAULT_GAME_OPTIONS, ENGINE_HOST, ENGINE_PORT, ENGINE_PW,
+                    ENGINE_USER)
 from game import GameSession, correct_bad_move, disambiguate_move
+
 from .client_options import ClientOptions
-from .strings import checkmate_1p, stalemate_1p, draw_1p, checkmate_2p, checkmate_2p_upset, draw_2p, \
-    stalemate_2p, resign_2p, interloper
+from .client_utils import board_to_emoji
+from .strings import (checkmate_1p, checkmate_2p, checkmate_2p_upset, draw_1p,
+                      draw_2p, interloper, resign_2p, stalemate_1p,
+                      stalemate_2p)
+
     # checkmate_string, stalemate_string, draw_string, resign_string, interloper_string, \
     # illegal_move_string, invalid_move_string, ambiguous_move_string, check_string, move_string, \
     # game_over_string, game_start_string, game_cancel_string, game_cancelled_string, game_cancel_fail_string, \
@@ -25,124 +32,6 @@ from .strings import checkmate_1p, stalemate_1p, draw_1p, checkmate_2p, checkmat
 
 logger = logging.getLogger(__name__)
 
-# Map pieces to emoji names
-pieces_map = {
-    'P': 'pw',
-    'R': 'rw',
-    'N': 'nw',
-    'B': 'bw',
-    'Q': 'qw',
-    'K': 'kw',
-    'p': 'pb',
-    'r': 'rb',
-    'n': 'nb',
-    'b': 'bb',
-    'q': 'qb',
-    'k': 'kb',
-    '.': '__'
-}
-
-# Map emoji names to emoji references, e.g. 'pw' -> '<:pw:1084899251366133802>'
-# Must be initialized after the bot is logged in, since the emoji IDs change whenever the server's emojis are updated
-# TODO: just use a single map for both pieces_map and emoji_map, this is silly
-emoji_map = {}
-
-def populate_emoji_map(new_map: Dict[str, str]):
-    '''Populate emoji_map with the current emoji references.'''
-    for piece, emoji in new_map.items():
-        emoji_map[piece] = emoji
-    logger.debug(f'Populated emoji_map in client_game_session.py: {emoji_map}')
-
-def fen_to_emoji(fen: str) -> str:
-    '''Given a FEN string, return a string that can be used in a Discord message'''
-    board = Board(fen)
-    return board_to_emoji(board)
-
-def board_to_emoji(board: Board, moves_list: List[str] = None) -> str:
-    '''Given a board from chess.py, return a string that can be used in a Discord message,
-    e.g. given a board with the starting position, return:
-    [list of moves, blank in this case]
-    :rbl::nbd::bbl::qbd::kbl::bbd::nbl::rbd: `8`
-    :pbd::pbl::pbd::pbl::pbd::pbl::pbd::pbl: `7`
-    :__l::__d::__l::__d::__l::__d::__l::__d: `6`
-    :__d::__l::__d::__l::__d::__l::__d::__l: `5`
-    :__l::__d::__l::__d::__l::__d::__l::__d: `4`
-    :__d::__l::__d::__l::__d::__l::__d::__l: `3`
-    :pwl::pwd::pwl::pwd::pwl::pwd::pwl::pwd: `2`
-    :rwd::nwl::bwd::qwl::kwd::bwl::nwd::rwl: `1`
-    ` a  b  c  d  e  f  g  h  `
-    Not quite like that, each emoji will be a fully-qualified reference, e.g. <:pwl:1084899251366133802>,
-    but that would be too long for this comment.
-    '''
-    # If emoji_map is empty, error out
-    if len(emoji_map) == 0:
-        raise ValueError('emoji_map is empty, please call populate_emoji_map(new_map) first')
-    # If moves_list is None, try to get the moves from the board
-    if moves_list is None:
-        moves_list = [move.uci() for move in board.move_stack]
-    # Get the last move, if any
-    last_move = board.peek() if len(board.move_stack) > 0 else None
-    # Get a string representation of the moves list
-    if len(moves_list) == 0:
-        moves_str = ''
-    else:
-        # Add move numbers every other move, and with the last move wrapped with '**'
-        moves_str = ''.join([(f'  {i // 2 + 1}. ' if i % 2 == 0 else ' ') + f'{"**" if i == len(moves_list) - 1 else ""}{move}' for i, move in enumerate(moves_list)]) + '**'
-    # Get a representation of the board as a 2D array
-    board_str = str(board)
-    board_arr = [rank.split(' ') for rank in board_str.split('\n')]
-    # Isolate the relevant squares from the last move, if any, for highlighting
-    (fr, ff, tr, tf) = (7 - last_move.from_square // 8, last_move.from_square % 8, 7 - last_move.to_square // 8, last_move.to_square % 8) if last_move else (None, None, None, None)
-    # Convert to a 2D array of emoji names
-    board_arr = [[f'{pieces_map[board_arr[r][f]]}{"h" if ((r == fr and f == ff) or (r == tr and f == tf)) else ("l" if (r + f) % 2 == 0 else "d")}' for f in range(len(board_arr[r]))] for r in range(len(board_arr))]
-    # Convert the board array into a list of strings, each string representing a rank
-    ranks_arr = [' ' + ''.join([emoji_map[p] for p in board_arr[r]]) + f' `{8-r}`' for r in range(len(board_arr))]
-    # Add the move list as an initial string
-    ranks_arr.insert(0, moves_str)
-    # Add the file labels as a final string
-    ranks_arr.append('` a  b  c  d  e  f  g  h  `')
-    # Join the lines into a single string and return it
-    return '\n'.join(ranks_arr)
-
-def emoji_to_fen(emoji: str) -> str:
-    '''Given a string that can be used in a Discord message, return a FEN string'''
-    # Get the board from the emoji
-    board = emoji_to_board(emoji)
-    # Return the FEN string
-    return board.fen()
-
-def emoji_to_board(message_str: str) -> Board:
-    '''Given a string that can be used in a Discord message, return a chess.Board'''
-    # Create a new empty board
-    board = Board(fen=None)
-    # Discard the first line (the move list) if it exists (starts with '1. ')
-    if message_str.split('\n')[0].startswith('1. '):
-        message_str = '\n'.join(message_str.split('\n')[1:])
-    # Discard the last line (the file labels) if it exists (starts with '` a ')
-    if message_str.split('\n')[-1].startswith('` a ') or message_str.split('\n')[-1].strip().startswith('a'):
-        message_str = '\n'.join(message_str.split('\n')[:-1])
-    # Discard the file labels at the end of each line if they exist
-    message_str = '\n'.join([line.strip().split(' ')[0] for line in message_str.split('\n')])
-    # Get the ranks from the emoji
-    ranks = message_str.split('\n')
-    if len(ranks) != 8:
-        print(f'Invalid number of ranks: {len(ranks)}')
-        print(f'Ranks: {ranks}')
-        raise ValueError('Invalid number of ranks')
-    # Iterate over the ranks
-    for r in range(len(ranks)):
-        # Get the squares from the rank
-        squares = ranks[r].split('::')
-        # Iterate over the squares
-        for f in range(len(squares)):
-            # Get the piece from the square
-            emoji = squares[f].replace(':', '')
-            piece = emoji[0].upper() if emoji[1] == 'w' else emoji[0]
-            # If the square is not empty, add the piece to the board
-            if piece != '_':
-                board.set_piece_at((7 - r) * 8 + f, Piece.from_symbol(piece))
-    # Return the board
-    return board
 
 def moves_to_board(moves: str) -> Board:
     '''Given a string of moves, return a chess.Board'''
@@ -173,8 +62,8 @@ class ClientGameSession(GameSession):
         Create a new ClientGameSession.
         :param ClientOptions client_options: The options that are relevant to the client.
         :param str fen: The FEN string to start the game from.
-        :param List[str] moves: The moves to make in the game. Overrides the FEN string if both are present.
-        :param Dict[str, Any] game_options: The options that are relevant to both the client and the engine.
+        :param list[str] moves: The moves to make in the game. Overrides the FEN string if both are present.
+        :param dict[str, Any] game_options: The options that are relevant to both the client and the engine.
         :param Snowflake session_id: The session ID to use for the game. Should match the thread ID.
         '''
         # session_id is converted to string because Snowflake is not JSON serializable.
@@ -197,6 +86,7 @@ class ClientGameSession(GameSession):
             # This is ridiculous. I'm going to bed.
             self.ws = None
             asyncio.run(self.connect()) # Is this the right way to do this?
+        # Offer state can be a single Offer, since only one offer can be active at a time.
     
     def __str__(self):
         '''Return a string representation of the game.'''
@@ -212,18 +102,48 @@ class ClientGameSession(GameSession):
         client_options = str(self.client_options)
         return f'GameSession({author_name}, {opponent_name}, {name}, {moves}, {client_options})'
     
+    @property
+    def current_player_id(self) -> Snowflake:
+        '''The ID of the player whose turn it is.'''
+        return self.client_options.get_id(self.board.turn)
+
+    @property
+    def other_player_id(self) -> Snowflake:
+        '''The ID of the player whose turn it is not.'''
+        return self.client_options.get_id(not self.board.turn)
+
+    @property
+    def current_player_name(self) -> str:
+        '''The name of the player whose turn it is.'''
+        return self.client_options.get_nick(self.board.turn)
+    
+    @property
+    def other_player_name(self) -> str:
+        '''The name of the player whose turn it is not.'''
+        return self.client_options.get_nick(not self.board.turn)
+    
+    @property
+    def current_player_mention(self) -> str:
+        '''The mention (nickname or ping, depending on options) of the player whose turn it is.'''
+        return self.client_options.get_ping_or_nick(self.board.turn)
+    
+    @property
+    def other_player_mention(self) -> str:
+        '''The mention (nickname or ping, depending on options) of the player whose turn it is not.'''
+        return self.client_options.get_ping_or_nick(not self.board.turn)
+    
     def new_game(self):
         '''
         Start a new game.
         '''
-        author_nick = self.client_options.author_nick
-        opponent_nick = self.client_options.opponent_nick
-        author_color = 'white' if self.client_options.author_is_white else 'black'
+        author_nick = self.client_options.author.nick
+        opponent_nick = self.client_options.opponent.nick
+        author_color = 'white' if self.client_options.author.color else 'black'
         ret_str = f'New game started between {author_nick} ({author_color}) and {opponent_nick}.\n'
         ret_str += self.get_last_move_response()
         return ret_str
 
-    def make_move(self, move_str: str, move_author: interactions.Member) -> str:
+    def make_move(self, move_str: str, mover: interactions.Member) -> str:
         '''
         After running various checks, make a move.
         Verify the author of the move, send the move to the engine, display the move on the board, ping the opponent, and update the clock.
@@ -231,17 +151,17 @@ class ClientGameSession(GameSession):
         '''
 
         # TODO: replace all these with flavor text in flavor_strings.py
-        if move_author is None:
+        if mover is None:
             return 'Something went wrong on the backend. I don\'t even know who you are.'
         
-        if move_author.user.id != self.client_options.black_id and move_author.user.id != self.client_options.white_id:
-            return f'You are not a player in this game, {move_author.nick}.'
+        if mover.user.id != self.client_options.black_player.id and mover.user.id != self.client_options.white_player.id:
+            return f'You are not a player in this game, {mover.nick or mover.user.username}.'
         
-        elif move_author.user.id != self.client_options.white_id and self.turn == WHITE:
-            return f'It is not your turn, {move_author.nick}!'
+        elif mover.user.id != self.client_options.white_player.id and self.turn == WHITE:
+            return f'It is not your turn, {self.client_options.black_player.nick}!'
         
-        elif move_author.user.id != self.client_options.black_id and self.turn == BLACK:
-            return f'It is not your turn, {move_author.nick}!'
+        elif mover.user.id != self.client_options.black_player.id and self.turn == BLACK:
+            return f'It is not your turn, {self.client_options.white_player.nick}!'
         
         # Check the move for validity
         try:
@@ -284,19 +204,13 @@ class ClientGameSession(GameSession):
         ret_str = self.get_last_move_response(check_warning_result=check_warning_str)
         return ret_str
     
-    def get_last_move_response(self, author_nick: str = None, check_warning_result: str = None) -> str:
+    def get_last_move_response(self, check_warning_result: str = None) -> str:
         '''
         Get the response to the last move on the board stack.
-        This includes the move itself (if one was made), the board, and (maybe) a warning about check.
+        This includes the moves list, the board, and (maybe) a note about check or checkmate.
         '''
 
-        last_move_str = self.last_move if self.client_options.notation == "san" else self.board.move_stack[-1].uci() if len(self.board.move_stack) > 0 else None
-
         ret_str = ''
-
-        # Note the move if one was made and the author's name is known
-        if last_move_str and author_nick:
-            ret_str += f'{author_nick} plays **{last_move_str}**.\n'
 
         # Convert the board to emoji, sending the list of SAN-formatted moves if the notation is SAN
         if self.client_options.notation == 'san':
@@ -310,8 +224,8 @@ class ClientGameSession(GameSession):
 
         if self.is_game_over:
             if self.is_checkmate:
-                winner = self.client_options.white_nick if self.turn == BLACK else self.client_options.black_nick
-                loser = self.client_options.white_nick if self.turn == WHITE else self.client_options.black_nick
+                winner = self.other_player_mention # The player who just moved is the winner
+                loser = self.current_player_mention # The player whose turn it is now is the loser
                 ret_str += f'\n{next(checkmate_2p if self.client_options.players == 2 else checkmate_1p).format(winner=winner, loser=loser)}'
             elif self.is_stalemate:
                 ret_str += f'\n{next(stalemate_2p if self.client_options.players == 2 else stalemate_1p)}'
@@ -324,6 +238,20 @@ class ClientGameSession(GameSession):
                 ret_str += f'\n{ping_str}, it\'s your turn!'
 
         return ret_str
+    
+    def process_draw_offer(self, offer_author: interactions.Member) -> str:
+        '''
+        Process a draw offer from a player.
+        '''
+        # Check if another offer is already pending
+        if self.current_offer:
+            # Is it a draw offer, and is it from the other player?
+            if self.current_offer.offer_type == 'draw' and offer_author.user.id != self.current_offer.author.id:
+                # If so, accept the draw
+                self.current_offer.status = 'accepted'
+                self.status.outcome = 'draw'
+                return f'**{offer_author.nick or offer_author.user.username}** accepted the draw offer from **{self.current_offer.offer_author.nick or self.current_offer.offer_author.user.username}**!'
+            
 
     def send_move(self, move_str: str) -> None:
         '''
@@ -348,7 +276,7 @@ class ClientGameSession(GameSession):
         await self.ws.close()
         self.connected = False
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         '''
         Convert the game to a serializable object.
         '''
@@ -357,7 +285,7 @@ class ClientGameSession(GameSession):
         return ret
 
     @classmethod
-    def from_dict(cls, json_dict: Dict[str, str]) -> 'ClientGameSession':
+    def from_dict(cls, json_dict: dict[str, str]) -> 'ClientGameSession':
         '''Load a game from a serialized object'''
         json_dict['client_options'] = ClientOptions.from_dict(json_dict['client_options'])
         return cls(**json_dict)

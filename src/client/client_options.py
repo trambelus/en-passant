@@ -1,12 +1,12 @@
 # Defines the ClientOptions class, which contains options for the client.
 # No surprises here, just a bunch of attributes.
 
-from typing import Any
-from attrs import define
 import logging
+from typing import Any
 
+from attrs import define
 from chess import BLACK, WHITE, Color
-
+from game import Player
 from interactions import Snowflake
 
 logger = logging.getLogger(__name__)
@@ -17,12 +17,9 @@ logger = logging.getLogger(__name__)
 class ClientOptions:
     '''
     Contains options for the client. Serializable via to_dict() and from_dict().
-    :param Snowflake author_id: the Discord ID of the author
-    :param Snowflake opponent_id: the Discord ID of the opponent (None if the opponent is the engine)
-    :param bool author_is_white: whether the author is playing white (True) or black (False)
+    :param Player | dict[str, str] author: the author of the game
+    :param Player | dict[str, str] opponent: the opponent of the game
     :param Snowflake channel_id: the Discord ID of the channel, thread, or DM in which the game is being played (must be unique among active games)
-    :param str author_nick: the nickname of the author (used for display purposes)
-    :param str opponent_nick: the nickname of the opponent (used for display purposes)
     :param int players: 1 if the game is between one player and the engine, 2 if it is between two players
     :param str notation: the notation to use for moves (options: 'san' (default), 'lan', 'uci')
     :param str ping: whether to ping each player when it is their turn (options: 'none', 'author', 'opponent', 'both')
@@ -33,12 +30,9 @@ class ClientOptions:
     :param bool private: whether the game is private
     '''
 
-    author_id: Snowflake | str
-    opponent_id: Snowflake | str | None
-    author_is_white: bool
+    author: Player | dict[str, str]
+    opponent: Player | dict[str, str]
     channel_id: Snowflake | str
-    author_nick: str
-    opponent_nick: str | None
     players: int = 1
     notation: str = 'san'
     ping: str = 'none'
@@ -49,61 +43,70 @@ class ClientOptions:
     private: bool = False
 
     def __attrs_post_init__(self):
-        if self.author_id is None:
-            raise ValueError('missing required argument: author_id')
-        if self.opponent_id is None and self.players == 2:
-            raise ValueError('missing required argument for 2-player game: opponent_id')
+        if self.author is None:
+            raise ValueError('missing required argument: author')
+        if self.opponent is None and self.players == 2:
+            raise ValueError('missing required argument for 2-player game: opponent')
         if self.channel_id is None:
             raise ValueError('missing required argument: channel_id')
-        self.author_id = Snowflake(self.author_id)
-        self.opponent_id = Snowflake(self.opponent_id)
-        self.channel_id = Snowflake(self.channel_id)
+        self.author = Player.from_dict(self.author) if isinstance(self.author, dict) else self.author
+        self.opponent = Player.from_dict(self.opponent) if isinstance(self.opponent, dict) else self.opponent
     
     # Properties
+    # TODO: remove unused properties
     @property
-    def black_id(self) -> str:
-        '''Returns the Discord ID of the player playing black (None if the engine is playing black).'''
-        return self.author_id if not self.author_is_white else self.opponent_id
+    def player(self, color: Color) -> Player:
+        '''Returns the Player playing the given color.'''
+        return self.author if self.author.color == color else self.opponent
     @property
-    def white_id(self) -> str:
-        '''Returns the Discord ID of the player playing white (None if the engine is playing white).'''
-        return self.author_id if self.author_is_white else self.opponent_id
+    def black_player(self) -> Player:
+        '''Returns the Player playing black.'''
+        return self.author if self.author.color == BLACK else self.opponent
     @property
-    def black_nick(self) -> str:
-        '''Returns the nickname of the player playing black (None if the engine is playing black).'''
-        return self.author_nick if not self.author_is_white else self.opponent_nick
-    @property
-    def white_nick(self) -> str:
-        '''Returns the nickname of the player playing white (None if the engine is playing white).'''
-        return self.author_nick if self.author_is_white else self.opponent_nick
+    def white_player(self) -> Player:
+        '''Returns the Player playing white.'''
+        return self.author if self.author.color == WHITE else self.opponent
     @property
     def ping_black(self) -> bool:
         '''Returns True if the black player should be pinged, False otherwise.'''
-        return self.ping == 'both' or (self.ping == 'author' and self.author_id == self.black_id) or (self.ping == 'opponent' and self.opponent_id == self.black_id)
+        return self.ping == 'both' or (self.ping == 'author' and self.author == self.black_player) or (self.ping == 'opponent' and self.opponent == self.black_player)
     @property
     def ping_white(self) -> bool:
         '''Returns True if the white player should be pinged, False otherwise.'''
-        return self.ping == 'both' or (self.ping == 'author' and self.author_id == self.white_id) or (self.ping == 'opponent' and self.opponent_id == self.white_id)
+        return self.ping == 'both' or (self.ping == 'author' and self.author == self.white_player) or (self.ping == 'opponent' and self.opponent == self.white_player)
     
     # Methods
     def get_ping_str(self, color: Color) -> str | None:
         '''Returns the string to use for pinging the player of the given color, or None if the player should not be pinged.'''
         if color == WHITE and self.ping_white:
-            return f'<@{self.white_id}>'
+            return f'<@{self.white_player.id}>'
         elif color == BLACK and self.ping_black:
-            return f'<@{self.black_id}>'
+            return f'<@{self.black_player.id}>'
         else:
             return None
+    
+    def get_id(self, color: Color) -> str:
+        '''Returns the Discord ID of the player of the given color.'''
+        return self.white_player.id if color == WHITE else self.black_player.id
+        
+    def get_nick(self, color: Color) -> str:
+        '''Returns the nickname of the player of the given color.'''
+        return self.white_player.nick if color == WHITE else self.black_player.nick
+    
+    def get_ping_or_nick(self, color: Color) -> str:
+        '''Returns the string to use for pinging the player of the given color, or their nickname if they should not be pinged.'''
+        ping_str = self.get_ping_str(color)
+        if ping_str is None:
+            return self.white_player.nick if color == WHITE else self.black_player.nick
+        else:
+            return ping_str
 
     def to_dict(self) -> dict[str, Any]:
         '''Returns a dictionary representation of the ClientOptions object.'''
         logger.debug('Converting ClientOptions object to dictionary.')
         return {
-            'author_id': str(self.author_id),
-            'opponent_id': str(self.opponent_id),
-            'author_nick': self.author_nick,
-            'opponent_nick': self.opponent_nick,
-            'author_is_white': self.author_is_white,
+            'author': self.author.to_dict(),
+            'opponent': self.opponent.to_dict(),
             'players': self.players,
             'notation': self.notation,
             'ping': self.ping,
