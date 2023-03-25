@@ -37,8 +37,6 @@ from config import BOT_TOKEN, EMOJI_CACHE_FILE
 # - /undo command to (request to) undo the last move
 # - /resign command to resign the game
 # - /draw command to offer a draw
-# - /accept command to accept a draw or undo request
-# - /decline command to decline a draw or undo request
 # Commands to update:
 # - /moves:
 #     - If there are more than 25 legal moves, show the first 25 and prompt the user to use /moves to see the rest

@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from typing import Any, Literal
+from typing import Any
 
 import interactions
 import websockets
@@ -16,6 +16,8 @@ from game import GameSession, correct_bad_move, disambiguate_move
 
 from .client_options import ClientOptions
 from .client_utils import board_to_emoji
+# String generator names are dynamically generated from the strings module via __getattr__, so we need to disable the warning.
+# pylint: disable=E0611
 from .strings import (checkmate_1p, checkmate_2p, checkmate_2p_upset, draw_1p,
                       draw_2p, interloper, resign_2p, stalemate_1p,
                       stalemate_2p)
@@ -34,12 +36,12 @@ logger = logging.getLogger(__name__)
 
 
 def moves_to_board(moves: str) -> Board:
-    '''Given a string of moves, return a chess.Board'''
+    '''Given a string of moves, return a chess.Board. Raises ValueError if the moves are invalid.'''
     # Create a new GameSession (useful for parsing moves)
     game_session = GameSession()
-    for move in moves.split(' '):
-        if not game_session.push_move_str(move):
-            raise ValueError('Invalid move')
+    for move_str in moves.split(' '):
+        move = game_session.parse_move(move_str)
+        game_session.board.push(move)
     return game_session.board
 
 def moves_to_fen(moves: str) -> str:
@@ -245,8 +247,13 @@ class ClientGameSession(GameSession):
         '''
         # Check if another offer is already pending
         if self.current_offer:
-            # Is it a draw offer, and is it from the other player?
-            if self.current_offer.offer_type == 'draw' and offer_author.user.id != self.current_offer.author.id:
+            # Is it a draw offer?
+            if self.current_offer.offer_type == 'draw':
+                # Is it from the same player?
+                if self.current_offer.offer_author == offer_author:
+                    # If so, cancel the offer
+                    self.current_offer = None
+                    return f'**{offer_author.nick or offer_author.user.username}** cancelled their draw offer.'
                 # If so, accept the draw
                 self.current_offer.status = 'accepted'
                 self.status.outcome = 'draw'
@@ -258,23 +265,14 @@ class ClientGameSession(GameSession):
         Send a move to the engine.
         '''
         raise NotImplementedError
-        self.ws.send(json.dumps({'request': 'move', 'session_id': self.session_id, 'move': move_str}))    
     
     async def connect(self):
-        connection_string = f'wss://{ENGINE_USER}:{ENGINE_PW}@{ENGINE_HOST}:{ENGINE_PORT}'
-        self.ws = await websockets.connect(connection_string)
-        await self.ws.send(json.dumps({'request': 'new', 'game_options': self.game_options}))
-        response = json.loads(await self.ws.recv())
-        if response['code'] != 200:
-            logger.error(f'Failed to connect to engine: {response["message"]}')
-        else:
-            self.session_id = response['session_id']
-            self.connected = True
+        '''Connect to the engine.'''
+        raise NotImplementedError
 
     async def disconnect(self):
-        await self.ws.send(json.dumps({'request': 'exit'}))
-        await self.ws.close()
-        self.connected = False
+        '''Disconnect from the engine.'''
+        raise NotImplementedError
     
     def to_dict(self) -> dict[str, Any]:
         '''
@@ -285,8 +283,8 @@ class ClientGameSession(GameSession):
         return ret
 
     @classmethod
-    def from_dict(cls, json_dict: dict[str, str]) -> 'ClientGameSession':
+    def from_dict(cls, session_dict: dict[str, str]) -> 'ClientGameSession':
         '''Load a game from a serialized object'''
-        json_dict['client_options'] = ClientOptions.from_dict(json_dict['client_options'])
-        return cls(**json_dict)
+        session_dict['client_options'] = ClientOptions.from_dict(session_dict['client_options'])
+        return cls(**session_dict)
     

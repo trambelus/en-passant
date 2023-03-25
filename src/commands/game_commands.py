@@ -4,11 +4,10 @@ import logging
 import random
 from base64 import b64decode, b64encode
 from json import dumps, loads
-from chess import Color
+from chess import BLACK, WHITE
 
 import interactions
 from interactions import Button, ButtonStyle
-from interactions.utils.get import get
 from interactions.utils.utils import spread_to_rows
 
 from client import (ClientGameSession, ClientOptions, cleanup, game_manager,
@@ -24,17 +23,17 @@ def register_game_commands(client: interactions.Client):
 
     logger.info("Registering game commands")
 
-    async def new_game_pvp(ctx: interactions.CommandContext, vs: interactions.User, color: str = 'random', ranked: bool = True, time_control: str = None) -> interactions.Channel:
+    async def new_game_pvp(ctx: interactions.CommandContext, vs_user: interactions.User, color: str = 'random', ranked: bool = True, time_control: str = None) -> interactions.Channel:
         author_nick = ctx.author.nick if ctx.author.nick else ctx.author.user.username
         # Determine the opponent
-        if vs is None:
+        if vs_user is None:
             await ctx.send(content='Invalid opponent! Please mention a user.')
             return
         else:
-            vs_nick = vs.nick if vs.nick else vs.user.username
+            vs_nick = vs_user.nick if vs_user.nick else vs_user.user.username
 
         # Check if the opponent is a bot (not allowed, that's what /new pvai is for)
-        if vs.bot:
+        if vs_user.bot:
             await ctx.send(content='Invalid opponent! You can\'t play a bot in a PvP game.')
             return
 
@@ -48,8 +47,8 @@ def register_game_commands(client: interactions.Client):
 
         # Define client options
         client_options_dict = {
-            'author': Player(ctx.author.id, author_nick, Color.WHITE if color == 'white' else Color.BLACK),
-            'opponent': Player(vs.id, vs_nick, Color.BLACK if color == 'white' else Color.WHITE),
+            'author': Player(ctx.author.id, author_nick, WHITE if color == 'white' else BLACK),
+            'opponent': Player(vs_user.id, vs_nick, BLACK if color == 'white' else WHITE),
             'players': 2,
             'notation': 'san',
             'ping': 'none',
@@ -85,6 +84,7 @@ def register_game_commands(client: interactions.Client):
     @save_after
     async def new_game(ctx: interactions.CommandContext, sub_command: str, vs: interactions.Member = None, level: str = 'random') -> None:        
         '''Create a new game.'''
+        game_channel = None
         try:
             # Check if this is a thread
             if ctx.channel.type in [interactions.ChannelType.PUBLIC_THREAD, interactions.ChannelType.PRIVATE_THREAD]:
@@ -108,11 +108,11 @@ def register_game_commands(client: interactions.Client):
             
             else:
                 await ctx.send(content='Invalid subcommand! Not sure what you\'re trying to do.')
-                logger.error(f'Invalid subcommand {sub_command} for /new command.')
+                logger.error('Invalid subcommand %s for /new command.', sub_command)
                 return
-            
-        except Exception as e:
-            logger.exception(e)
+        # pylint: disable=broad-except
+        except Exception as ex:
+            logger.exception(ex)
             await ctx.send(content='Error creating new game!')
             if game_channel:
                 await game_channel.delete()

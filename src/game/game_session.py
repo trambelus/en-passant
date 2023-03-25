@@ -15,6 +15,7 @@ from .player import Player
 logger = logging.getLogger(__name__)
 
 def generate_session_id():
+    '''Generates a unique session ID.'''
     return str(uuid.uuid4())[8] # doesn't need to be secure, just unique
 
 OfferType = Literal['undo', 'draw']
@@ -27,7 +28,7 @@ class Offer:
     author: Player
     status: OfferStatus = 'pending'
 
-GameStatus = Literal['in_progress', 'resigned', 'checkmate', 'stalemate', 'draw']
+GameStatusType = Literal['in_progress', 'resigned', 'checkmate', 'stalemate', 'draw']
 @define
 class GameStatus:
     '''
@@ -38,7 +39,7 @@ class GameStatus:
     :param Player loser: The ID of the player who lost the game, if any.
     :param advantage float: Value representing white's advantage in centipawns, as calculated by the engine. Positive values indicate white is winning, negative values indicate black is winning, and zero indicates an even game.
     '''
-    outcome: GameStatus
+    outcome: GameStatusType
     winner: Player | None = None
     loser: Player | None = None
     advantage: float | None = None
@@ -55,7 +56,7 @@ class GameSession:
     - time_limit: the time limit for each player, in seconds
     - increment: the increment for the game, in seconds
     '''
-    def __init__(self, fen: str = None, moves: list[str] = [], game_options: dict[str, Any] = DEFAULT_GAME_OPTIONS, session_id: str | None = None):
+    def __init__(self, fen: str = None, moves: list[str] = None, game_options: dict[str, Any] = None, session_id: str | None = None):
         '''
         Set board, fen, game options, variant, chess960 position, and moves.
         :param str fen: the FEN string to set the board to
@@ -68,6 +69,10 @@ class GameSession:
         If you want to apply moves to a board with a non-standard starting position, you'll need to set the board to the starting position first with reset_board(fen),
         then apply the moves with apply_moves(moves).
         '''
+        if moves is None:
+            moves = []
+        if game_options is None:
+            game_options = DEFAULT_GAME_OPTIONS
         self.session_id: str = str(session_id) or generate_session_id()
         self.status: GameStatus = GameStatus(outcome='in_progress')
         self.current_offer: Offer | None = None
@@ -77,7 +82,7 @@ class GameSession:
         try:
             self.chess960_pos = int(game_options.get('chess960_pos', -1))
         except ValueError:
-            logger.warn(f'Invalid chess960 starting position \'{game_options.get("chess960_pos")}\'; defaulting to standard chess')
+            logger.warning('Invalid chess960 starting position \'%s\'; defaulting to standard chess', game_options.get("chess960_pos"))
             self.chess960_pos = -1
 
         # Attempt to apply moves, if any, and revert to starting position if any are invalid.
@@ -89,10 +94,10 @@ class GameSession:
                                    # since the board does store them in UCI format (sort of) via board.move_stack.
         self.reset_board()
         if not self.apply_moves(moves):
-            logger.warn('Could not apply moves; reverting to starting position')
+            logger.warning('Could not apply moves; reverting to starting position')
             self.reset_board(fen=fen)
             self.moves = []
-    
+
     def apply_moves(self, moves: list[str]) -> bool:
         '''
         Applies a list of moves to the board. Returns True if all moves were applied successfully, False otherwise.
@@ -100,24 +105,25 @@ class GameSession:
         for move_str in moves:
             try:
                 if move_str in ['0-1', '1-0', '1/2-1/2']:
-                    logger.info(f'Loaded board from moves with game over indicated: {move_str}')
+                    logger.info('Loaded board from moves with game over indicated: %s', move_str)
                     break
                 move = self.parse_move(move_str)
                 self.moves.append(self.board.san(move))
                 self.board.push(move)
             except (chess.InvalidMoveError, chess.AmbiguousMoveError, chess.IllegalMoveError):
-                logger.warn(f'Could not parse move \'{move_str}\' in moves list!')
+                logger.warning('Could not parse move \'%s\' in moves list!', move_str)
                 return False
         return True
 
     def reset_board(self, fen: str | None = None) -> chess.Board:
+        '''Resets the board to the starting position, or to the position specified by the fen parameter.'''
         if fen is not None:
             try:
                 self.board = chess.Board()
                 self.fen = fen # Also sets the board to the FEN string (gotta remember it's a property)
                 return self.board
             except ValueError:
-                logger.warn(f'Invalid FEN string \'{fen}\'; defaulting to starting position')
+                logger.warning('Invalid FEN string \'%s\'; defaulting to starting position', fen)
         if self.chess960_pos >= 0:
             self.board = chess.Board.from_chess960_pos(self.chess960_pos)
         elif self.variant is not None and self.variant != 'standard':
@@ -126,7 +132,7 @@ class GameSession:
                 # Set variant name to the actual name of the variant, in case it matched a variant alias
                 self.variant = self.board.uci_variant
             except ValueError:
-                logger.warn(f'Unknown variant \'{self.variant}\'; defaulting to standard chess')
+                logger.warning('Unknown variant \'%s\'; defaulting to standard chess', self.variant)
                 self.board = chess.Board()
                 self.variant = 'standard'
         else:
@@ -137,7 +143,7 @@ class GameSession:
         '''
         Attempts to interpret a move first as UCI, then as SAN.
         If the move is syntatically invalid in both formats, illegal on the current board, or
-        ambiguous, as indicated by the exception, throws the exception.
+        ambiguous, raises a relevant exception.
         '''
         move_str = move_str.replace('%20', ' ').replace('х', 'x') # A relic of the old days, when the client would send moves as a URL parameter
         move = None
@@ -150,19 +156,19 @@ class GameSession:
             # It's not valid UCI, so try SAN
             try:
                 move = self.board.parse_san(move_str)
-            except chess.InvalidMoveError as e:
-                logger.warn(f'Invalid move: \'{move_str}\'')
-                raise e
-            except chess.AmbiguousMoveError as e:
-                logger.warn(f'Ambiguous move: \'{move_str}\'')
-                raise e
-            except Exception as e:
+            except chess.InvalidMoveError as ex:
+                logger.warning('Invalid move: \'%s\'', move_str)
+                raise ex
+            except chess.AmbiguousMoveError as ex:
+                logger.warning('Ambiguous move: \'%s\'', move_str)
+                raise ex
+            except Exception as ex:
                 # If it's not an InvalidMoveError or AmbiguousMoveError, it's probably an IllegalMoveError, so we'll just re-raise it for the block below.
                 # And if it's something else, we'll just let it propagate up.
-                raise e
-        except chess.IllegalMoveError as e:
-            logger.warn(f'Illegal move: \'{move_str}\'')
-            raise e
+                raise ex
+        except chess.IllegalMoveError as ex:
+            logger.warning('Illegal move: \'%s\'', move_str)
+            raise ex
         return move
 
     def push_move(self, move: chess.Move) -> None:
@@ -180,11 +186,11 @@ class GameSession:
             try:
                 self.moves.append(self.board.san(move))
                 self.board.push(move)
-            except chess.IllegalMoveError as e:
+            except chess.IllegalMoveError as ex:
                 # I would mark this as critical, but it's recoverable, so I'll just mark it as an error.
-                logger.error(f'Illegal move in push_move: \'{move}\'. This should not happen.')
+                logger.error('Illegal move in push_move: \'%s\'. This should not happen.', move)
                 self.moves = self.moves[:previous_moves_len]
-                raise e
+                raise ex
 
     def check_warning(self, move_str: str) -> str | None:
         '''If the given move specifies check or checkmate, verify that it is correct.
@@ -192,14 +198,13 @@ class GameSession:
         if self.board.is_check() and not self.board.is_checkmate():
             if move_str.endswith('#'):
                 return 'User called a checkmate, but this move results in check!'
-            else:
-                return 'Check!'
+            return 'Check!'
         if move_str.endswith('+') and not self.board.is_check():
             return 'User called a check, but this move does not result in check!'
         if move_str.endswith('#') and not self.board.is_checkmate():
             return 'User called a checkmate, but this move does not result in checkmate!'
         return None
-    
+
     def to_dict(self) -> dict[str, Any]:
         '''Returns a serializable dict representation of this object.'''
         # It shouldn't be strictly necessary to include the fen parameter, since it's only used in initialization
@@ -210,13 +215,13 @@ class GameSession:
             'game_options': self.game_options,
             'session_id': self.session_id,
         }
-        logger.debug(f'GameSession.to_dict: {ret}')
+        logger.debug('GameSession.to_dict: %s', ret)
         return ret
 
     @staticmethod
-    def from_dict(d: dict[str, Any]) -> 'GameSession':
+    def from_dict(session_dict: dict[str, Any]) -> 'GameSession':
         '''Returns a GameSession object from the given dict.'''
-        return GameSession(**d)
+        return GameSession(**session_dict)
 
     # Properties
     @property
@@ -246,73 +251,73 @@ class GameSession:
     def san_moves(self) -> list[str]:
         '''Returns the list of moves in SAN.'''
         return self.moves
-    
+
     @property
     def uci_moves(self) -> list[str]:
         '''Returns the list of moves in UCI.'''
         return [move.uci() for move in self.board.move_stack]
-    
+
     @property
     def is_game_over(self):
         '''Returns True if the game is over, False otherwise.'''
         return self.board.is_game_over() or self.status.outcome != 'in_progress'
-    
+
     @property
     def is_check(self) -> bool:
         '''Returns whether the current player is in check.'''
         return self.board.is_check()
-    
+
     @property
     def is_checkmate(self) -> bool:
         '''Returns whether the current player is in checkmate.'''
         return self.board.is_checkmate()
-    
+
     @property
     def is_stalemate(self) -> bool:
         '''Returns whether the current player is in stalemate.'''
         return self.board.is_stalemate()
-    
+
     @property
     def is_insufficient_material(self) -> bool:
         '''Returns whether the current player is in stalemate due to insufficient material.'''
         return self.board.is_insufficient_material()
-    
+
     @property
     def is_seventyfive_moves(self) -> bool:
         '''Returns whether the current player is in stalemate due to the 75-move rule.'''
         return self.board.is_seventyfive_moves()
-    
+
     @property
     def is_fivefold_repetition(self) -> bool:
         '''Returns whether the current player is in stalemate due to the 5-fold repetition rule.
         This method might be slow, so it's recommended to use it only when necessary.'''
         return self.board.is_fivefold_repetition()
-    
+
     @property
     def is_variant_end(self) -> bool:
         '''Returns whether the current game is over due to the end of the variant.'''
         return self.board.is_variant_end()
-    
+
     @property
     def is_variant_win(self) -> bool:
         '''Returns whether the current player has won due to the end of the variant.'''
         return self.board.is_variant_win()
-    
+
     @property
     def is_variant_loss(self) -> bool:
         '''Returns whether the current player has lost due to the end of the variant.'''
         return self.board.is_variant_loss()
-    
+
     @property
     def is_variant_draw(self) -> bool:
         '''Returns whether the current player has drawn due to the end of the variant.'''
         return self.board.is_variant_draw()
-    
+
     @property
     def is_irreversible(self) -> bool:
         '''Returns whether the current position is irreversible.'''
         return self.board.is_irreversible()
-    
+
     @property
     def is_repetition(self) -> bool:
         '''Returns whether the current position is a repetition.'''
@@ -323,6 +328,7 @@ class GameSession:
 
 def levenshtein(s1: str, s2: str) -> int:
     '''Returns the levenshtein distance between the two given strings.'''
+    # pylint: disable=C0103,W1114
     if len(s1) < len(s2):
         return levenshtein(s2, s1)
 
@@ -365,7 +371,7 @@ def disambiguate_move(ambiguous_san: str, board: chess.Board) -> list[str]:
             legal_move_tokens['to_file'] == ambiguous_move_tokens['to_file']:
             # All the legal moves that match the given move are the same piece moving to the same square
             matches.append(board.san(move))
-        
+
     return matches
 
 def tokenize_move(move: str) -> dict[str, str]:
@@ -399,5 +405,5 @@ def tokenize_move(move: str) -> dict[str, str]:
             ret['promotion'] = ret['promotion'][-1].upper()
         # No piece specified means pawn, unless from_rank and from_file are both specified and capture is not (then it's a UCI move, not SAN)
         if not ret.get('piece') and not (ret.get('from_rank') and ret.get('from_file') and not ret.get('capture')):
-            ret['piece'] = 'P'  
+            ret['piece'] = 'P'
     return ret
