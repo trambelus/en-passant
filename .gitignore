@@ -9,6 +9,9 @@ resources/compiled/
 *.json
 *.code-workspace
 runtime-data/
+.venv*/
+# generated protobuf files
+*_pb2.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

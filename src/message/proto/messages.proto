@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+message OptionUpdate {
+    string id = 1;
+    string name = 2;
+    string value = 3;
+}
+
+message Variation {
+    repeated string moves = 1;
+    int32 score = 2;
+    int32 mate = 3;
+}
+
+message MoveRequest {
+    string id = 1;
+    string starting_fen = 2;
+    repeated string moves = 3;
+    int32 multipv = 4;
+}
+
+message MoveResponse {
+    string id = 1;
+    string best_move = 2;
+    string ponder_move = 3;
+    repeated Variation variations = 4;
+}
