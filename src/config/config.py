@@ -27,6 +27,7 @@ load_dotenv()
 ENGINE_USER = os.getenv('EP_ENGINE_USER', 'engine_user_unset')
 ENGINE_PW = os.getenv('EP_ENGINE_PW', 'engine_pw_unset')
 ENGINE_PORT = os.getenv('EP_ENGINE_WS_PORT', 'engine_ws_port_unset')
+DB_CONNECTION_STRING = os.getenv('EP_DB_CONNECTION_STRING', 'db_connection_string_unset')
 
 # Required only for engine
 ENGINE_EXECUTABLE = os.getenv('EP_ENGINE_EXECUTABLE', 'engine_executable_unset')
