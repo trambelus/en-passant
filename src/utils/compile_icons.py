@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 
 import argparse
-import asyncio
 import os
 from io import BytesIO
 
 from cairosvg import svg2png
 from PIL import Image
-import discord
-from discord.ext import commands
+import interactions
+from interactions.utils import get
 
 from config import BOT_TOKEN, HOME_GUILD_ID
 
@@ -70,24 +69,23 @@ def process(args):
             print('Wrote new file {}, quality={}'.format(output_filepath, quality))
     if args.upload:
         upload(args.output_path)
-    
+
 def upload(output_path):
-    client = discord.Client(token=BOT_TOKEN, intents=discord.Intents(guilds=True, emojis=True))
-    @client.event
+    bot = interactions.Client(token=BOT_TOKEN, intents=interactions.Intents.GUILDS | interactions.Intents.GUILD_EMOJIS_AND_STICKERS)
+    @bot.event
     async def on_ready():
-        guild = client.get_guild(int(HOME_GUILD_ID))
+        guild: interactions.Guild = get(bot, interactions.Guild, id=int(HOME_GUILD_ID))
         # Delete all existing custom emojis first
-        for emoji in await guild.fetch_emojis():
+        for emoji in await guild.get_all_emoji():
             print(f'Deleting {emoji.name} ({emoji.id})')
             await emoji.delete()
         # Upload the new custom emojis
         for filename in os.listdir(output_path):
             with open(os.path.join(output_path, filename), 'rb') as image_file:
-                await guild.create_custom_emoji(name=filename.split('.')[0], image=image_file.read())
+                await guild.create_emoji(name=filename.split('.')[0], image=image_file.read())
             print('Uploaded {}'.format(filename))
-        await client.close()
+        await bot.close()
         print('Done!')
-    client.run(BOT_TOKEN)
 
 def main():
     parser = argparse.ArgumentParser(description='Compile board/piece PNGs and optionally upload')
