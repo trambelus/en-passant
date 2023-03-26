@@ -13,6 +13,8 @@ from commands import register_commands, refresh_emoji_names
 from config import BOT_TOKEN, EMOJI_CACHE_FILE
 
 # TODO:
+# - Look into multiprocessing to speed up the bot
+# - Switch to using a database instead of JSON files (i.e. MongoDB)
 # - Add support for resuming games (e.g. if the bot restarts)
 #     - For now, include support for resuming from FEN string or moves list, but when the bot is more robust, rely on saved game state
 #     - Save game options (e.g. time control, increment, etc.) in the game session
@@ -20,7 +22,6 @@ from config import BOT_TOKEN, EMOJI_CACHE_FILE
 # - Allow using pvs instead of bestmove when the engine is responding slowly or time is low
 # - Add game timers
 # - Add non-game commands (e.g. help, stats, rankings, etc.)
-# - Use human-readable session IDs instead of UUIDs (proquints? NATO phonetic alphabet?)
 # - Add command for spectating games in a private thread with engine-supplied analysis
 #     - Web-based UI for spectating games? Stretch goal.
 #     - Can GPT-3 be used to generate analysis?

@@ -6,7 +6,6 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent / 'src'))
 
-
 from bot import run
 
 logger = logging.getLogger(__name__)

@@ -4,7 +4,6 @@ import logging
 from typing import Any
 
 import interactions
-import websockets
 from attrs import define
 from chess import (BLACK, WHITE, AmbiguousMoveError, Board, IllegalMoveError,
                    InvalidMoveError)
