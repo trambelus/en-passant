@@ -86,5 +86,3 @@ LOG_CONFIG = {
         },
     }
 }
-
-logging.config.dictConfig(LOG_CONFIG)

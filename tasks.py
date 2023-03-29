@@ -1,11 +1,18 @@
-from invoke import task
+import logging
+import logging.config
+import subprocess
 import sys
 from pathlib import Path
-import subprocess
-import logging
+
+from invoke import task
 
 PROTOC_COMMAND = f'protoc --proto_path={Path("src/message/proto").resolve()} --python_out={Path("src/message").resolve()} ' # Append the file names to this string
 
+# Add the src directory to the path so we can import the config module
+sys.path.append(str(Path(__file__).resolve().parent / 'src'))
+from config import LOG_CONFIG
+# Configure logging
+logging.config.dictConfig(LOG_CONFIG)
 logger = logging.getLogger(__name__)
 
 @task
